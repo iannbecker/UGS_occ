@@ -1,6 +1,8 @@
 ---
 title: "git_test_UGSocc"
-output: github_document
+output:
+  html_document:
+    df_print: paged
 date: "2025-11-26"
 ---
 
@@ -8,7 +10,6 @@ date: "2025-11-26"
 
 ```{r}
 
-library(rinat)
 library(dplyr)
 library(ggplot2)
 
