@@ -1,6 +1,6 @@
 ---
 title: "git_test_UGSocc"
-output: html_document
+output: github_document
 date: "2025-11-26"
 ---
 
