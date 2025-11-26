@@ -1,8 +1,6 @@
 ---
 title: "git_test_UGSocc"
-output:
-  html_document:
-    df_print: paged
+output: github_document
 date: "2025-11-26"
 ---
 
