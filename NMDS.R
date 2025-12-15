@@ -132,7 +132,7 @@ nmds_result <- metaMDS(species_matrix,
                        trymax = 500)
 
 # Check stress
-print(paste("NMDS Stress:", round(nmds_result$stress, 3)))
+print(paste("NMDS Stress:", round(nmds_result$stress, 3))) 
 
 # Stress interpretation:
 # < 0.05: excellent
