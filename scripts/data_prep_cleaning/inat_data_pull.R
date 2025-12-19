@@ -1,97 +1,51 @@
 ##############################
 #
 # iNat Data Pull 
-# 8/6/2025
+# 12/19/2025
 # Ian Becker
 #
 ##############################
 
-library(rgbif)
 library(rinat)
 library(dplyr)
 library(sf)
 
 ####################
-#   GBIF
+#   iNat Data Pull
 ####################
 
 ################## Data Prep
 
 # Reading in shapefile
 
-urban_hotspot <- st_read("C:/Users/ianbe/OneDrive - The University of Texas-Rio Grande Valley/CampusBirds/ugs/urban_hotspot_shapefile")
+urban_hotspot <- st_read("lrgv_urban_green_spaces_150m")
 
-# Converting to wkt format for rgbif
+cat("Original CRS:", st_crs(urban_hotspot)$input, "\n")
 
-urban_hotspot_wkt <- st_as_text(st_geometry(urban_hotspot)[1])
+# Transform to WGS84 for iNaturalist API (expects lat/lon)
+urban_hotspot_wgs84 <- st_transform(urban_hotspot, crs = 4326)
 
-# Species list
-
-species <- read.csv("patch_occupancy_candidates.csv")
-species_list <- unique(species$scientific_name)
-
-# Prepping for data pull 
-
-inat_dataset_key <- "50c9509d-22c7-4a22-a47d-8c48425ef4a7"
-
-all_gbif_data <- list()
-gbif_max_records <- 5000 
-
-################## Data Pull
-
-for (i in seq_along(species_list)) {
-  
-  species <- species_list[i]
-  cat(paste0("[", i, "/", length(species_list), "] Extracting data for: ", species, "\n"))
-  
-  # Try to get the data with error handling
-  tryCatch({
-    
-    # Search for the species
-    species_data <- occ_search(
-      scientificName = species,
-      datasetKey = inat_dataset_key,
-      geometry = urban_hotspot_wkt,
-      hasCoordinate = TRUE,
-      hasGeospatialIssue = FALSE,
-      limit = max_records
-    )
-    
-    # Extract and process the data frame
-    if (!is.null(species_data$data) && nrow(species_data$data) > 0) {
-      
-      df <- species_data$data
-      df$query_species <- species  # Add species name for tracking
-      
-      # Store the data
-      all_gbif_data[[species]] <- df
-      
-      cat("  Found", nrow(df), "records\n")
-      
-    } else {
-      cat("  No records found\n")
-    }
-    
-  }, error = function(e) {
-    cat("  Error occurred:", e$message, "\n")
-  })
-  
-  # Be nice to the API - add a small delay
-  Sys.sleep(1)
-  cat("\n")
-}
-
-
-####################
-#   iNat
-####################
-
-################## Data Prep
+cat("Transformed to WGS84 for API calls\n")
 
 # Shapefile conversion to bounding box
 
-urban_hotspot_bbox <- st_bbox(urban_hotspot)
+urban_hotspot_bbox <- st_bbox(urban_hotspot_wgs84)
 bounds <- c(urban_hotspot_bbox$ymin, urban_hotspot_bbox$xmin, urban_hotspot_bbox$ymax, urban_hotspot_bbox$xmax)
+
+cat("Bounding box (lat/lon):\n")
+cat("  South:", bounds[1], "\n")
+cat("  West:", bounds[2], "\n")
+cat("  North:", bounds[3], "\n")
+cat("  East:", bounds[4], "\n\n")
+
+# Species list from CSV
+
+species_df <- read.csv("exploratory_species.csv")
+species_list <- species_df$scientific_name
+
+cat("Loading", length(species_list), "species:\n")
+print(species_list)
+cat("\n")
 
 # Prepping for data pull
 
@@ -102,18 +56,18 @@ inat_max_records <- 10000
 
 for (i in seq_along(species_list)) {
   
-  species <- species_list[i]
-  cat(paste0("[", i, "/", length(species_list), "] Extracting data for: ", species, "\n"))
+  species_name <- species_list[i]
+  cat(paste0("[", i, "/", length(species_list), "] Extracting data for: ", species_name, "\n"))
   
   # Try to get the data with error handling
   tryCatch({
     
     # Get observations from iNaturalist directly
     species_data <- get_inat_obs(
-      taxon_name = species,
+      taxon_name = species_name,
       bounds = bounds,
       maxresults = inat_max_records,
-      quality = "research"  # research grade only, or use "any" for all
+      quality = "research"  # research grade only
     )
     
     if (!is.null(species_data) && nrow(species_data) > 0) {
@@ -124,15 +78,17 @@ for (i in seq_along(species_list)) {
                              coords = c("longitude", "latitude"), 
                              crs = 4326)
       
-      # Check which points are inside the polygon
-      inside_polygon <- st_within(species_sf, urban_hotspot, sparse = FALSE)[,1]
+      # Check which points intersect with ANY of the green space cells
+      # Use st_intersects and check if any cell contains the point
+      intersections <- st_intersects(species_sf, urban_hotspot_wgs84)
+      inside_polygon <- lengths(intersections) > 0
       
       # Filter to only points inside polygon
       species_filtered <- species_data[inside_polygon, ]
       
       if (nrow(species_filtered) > 0) {
-        species_filtered$query_species <- species
-        all_rinat_data[[species]] <- species_filtered
+        species_filtered$query_species <- species_name
+        all_rinat_data[[species_name]] <- species_filtered
         
         cat("  Found", nrow(species_data), "in bounding box,", 
             nrow(species_filtered), "inside polygon\n")
@@ -155,7 +111,7 @@ for (i in seq_along(species_list)) {
 
 
 ####################
-#   Data Filtering (inat)
+#   Data Filtering
 ####################
 
 filtered_inat_data <- list()
@@ -180,7 +136,6 @@ for (species_name in names(all_rinat_data)) {
   cat("  Raw records:", raw_count, "\n")
   
   # (1) Research grade entries - already filtered during extraction
-  # (assuming you used quality = "research" in get_inat_obs)
   
   # (2) Non-captive and non-cultivated individuals
   species_data <- species_data %>%
@@ -233,6 +188,17 @@ for (species_name in names(all_rinat_data)) {
   cat("\n")
 }
 
-########## Saving 
+####################
+#   Save Results
+####################
 
-saveRDS(filtered_inat_data, "urban_hotspot_species_inat.rds")
+saveRDS(filtered_inat_data, "lrgv_flycatcher_inat_data.rds")
+cat("Saved filtered data to: lrgv_flycatcher_inat_data.rds\n")
+
+# Save filtering summary
+write.csv(filtering_summary, "lrgv_flycatcher_filtering_summary.csv", row.names = FALSE)
+cat("Saved filtering summary to: lrgv_flycatcher_filtering_summary.csv\n")
+
+cat("\n=== DATA PULL COMPLETE ===\n")
+cat("Species with sufficient data (≥25 obs):", sum(filtering_summary$meets_25_threshold), "\n")
+cat("Total filtered observations:", sum(filtering_summary$final_records), "\n")
