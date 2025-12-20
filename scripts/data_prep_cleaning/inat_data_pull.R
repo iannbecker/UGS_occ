@@ -6,6 +6,9 @@
 #
 ##############################
 
+# this script is used for pulling and filtering inat data for select species
+# in our urban green spaces
+
 library(rinat)
 library(dplyr)
 library(sf)
@@ -202,3 +205,4 @@ cat("Saved filtering summary to: lrgv_flycatcher_filtering_summary.csv\n")
 cat("\n=== DATA PULL COMPLETE ===\n")
 cat("Species with sufficient data (≥25 obs):", sum(filtering_summary$meets_25_threshold), "\n")
 cat("Total filtered observations:", sum(filtering_summary$final_records), "\n")
+
