@@ -21,7 +21,7 @@ library(sf)
 
 # Reading in shapefile
 
-urban_hotspot <- st_read("lrgv_urban_green_spaces_150m")
+urban_hotspot <- st_read("lrgv_osm_green_spaces_filtered")
 
 cat("Original CRS:", st_crs(urban_hotspot)$input, "\n")
 
