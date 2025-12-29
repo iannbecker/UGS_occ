@@ -25,9 +25,9 @@ osm_sites <- st_read("lrgv_osm_green_spaces_filtered")
 
 m <- mapview(combined_sites, 
              zcol = "type",
-             label = paste0("ID:", osm_sites$site_id, " - ", 
-                            osm_sites$name, " (", 
-                            round(osm_sites$area_ha, 1), " ha)"),
+             label = paste0("ID:", combined_sites$site_id, " - ", 
+                            combined_sites$name, " (", 
+                            round(combined_sites$area_ha, 1), " ha)"),
              layer.name = "Site Type")
 
 # View the map
