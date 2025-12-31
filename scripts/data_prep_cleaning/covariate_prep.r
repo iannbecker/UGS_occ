@@ -264,7 +264,7 @@ print(round(cor_matrix, 2))
 cat("\n")
 
 # Flag high correlations
-high_cor <- which(abs(cor_matrix) > 0.7 & abs(cor_matrix) < 1, arr.ind = TRUE)
+high_cor <- which(abs(cor_matrix) > 0.6 & abs(cor_matrix) < 1, arr.ind = TRUE)
 if (nrow(high_cor) > 0) {
   cat("High correlations (|r| > 0.7) detected:\n")
   for (i in 1:nrow(high_cor)) {
