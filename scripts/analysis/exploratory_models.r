@@ -332,3 +332,6 @@ cat("  1. Check convergence diagnostics\n")
 cat("  2. Examine coefficient estimates\n")
 cat("  3. Run model for additional species\n")
 cat("  4. Compare results across species/guilds\n")
+
+ppc_result <- ppcOcc(model, fit.stat = 'freeman-tukey', group = 2)
+summary(ppc_result)
