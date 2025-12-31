@@ -57,7 +57,7 @@ cat("=== PREPARING COVARIATES ===\n\n")
 # Select covariates (excluding urban_pct due to collinearity)
 occ_covs <- site_covs %>%
   select(trees_pct, grass_pct, shrub_pct, flooded_veg_pct, 
-         crops_pct, habitat_diversity)
+         crops_pct, log_area, habitat_diversity)
 
 # Scale covariates (important for model convergence!)
 occ_covs_scaled <- as.data.frame(scale(occ_covs))
@@ -152,7 +152,7 @@ start_time <- Sys.time()
 model <- tPGOcc(
   # Occupancy formula
   occ.formula = ~ trees_pct + grass_pct + shrub_pct + 
-    flooded_veg_pct + crops_pct + habitat_diversity,
+    flooded_veg_pct + crops_pct + log_area + habitat_diversity,
   
   # Detection formula
   det.formula = ~ year,
