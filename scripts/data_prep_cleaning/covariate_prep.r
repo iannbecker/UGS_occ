@@ -38,6 +38,44 @@ if (st_crs(sites)$input != crs(landcover, describe = TRUE)$code) {
 }
 
 ####################
+#   Calculate Site Areas
+####################
+
+cat("=== CALCULATING SITE AREAS ===\n\n")
+
+# Calculate area in hectares
+# First ensure we're in a projected CRS (UTM 14N) for accurate area calculation
+if (!st_is_longlat(sites)) {
+  cat("Already in projected CRS\n")
+} else {
+  cat("Converting to UTM Zone 14N for accurate area calculation...\n")
+  sites <- st_transform(sites, crs = 32614)
+}
+
+# Calculate areas
+sites$area_m2 <- st_area(sites)
+sites$area_ha <- as.numeric(sites$area_m2) / 10000  # Convert m² to hectares
+
+cat("Area summary:\n")
+cat("  Min:", round(min(sites$area_ha), 2), "ha\n")
+cat("  Max:", round(max(sites$area_ha), 2), "ha\n")
+cat("  Mean:", round(mean(sites$area_ha), 2), "ha\n")
+cat("  Median:", round(median(sites$area_ha), 2), "ha\n\n")
+
+# Check for unusual values
+n_small <- sum(sites$area_ha < 1)
+n_large <- sum(sites$area_ha > 100)
+
+if (n_small > 0) {
+  cat("Note:", n_small, "sites < 1 ha\n")
+}
+if (n_large > 0) {
+  cat("Note:", n_large, "sites > 100 ha\n")
+}
+
+cat("\n")
+
+####################
 #   Extract Land Cover for Each Site
 ####################
 
@@ -47,6 +85,8 @@ cat("This may take several minutes for", n_sites, "sites...\n\n")
 # Initialize results dataframe
 site_covariates <- data.frame(
   site_id = integer(),
+  area_ha = numeric(),
+  log_area = numeric(),
   trees_pct = numeric(),
   grass_pct = numeric(),
   shrub_pct = numeric(),
@@ -77,6 +117,8 @@ for (i in 1:n_sites) {
     
     site_result <- data.frame(
       site_id = site$site_id,
+      area_ha = site$area_ha,
+      log_area = log(site$area_ha + 0.01),
       trees_pct = 0,
       grass_pct = 0,
       shrub_pct = 0,
@@ -132,6 +174,8 @@ for (i in 1:n_sites) {
     
     site_result <- data.frame(
       site_id = site$site_id,
+      area_ha = site$area_ha,
+      log_area = log(site$area_ha + 0.01),
       trees_pct = trees_pct,
       grass_pct = grass_pct,
       shrub_pct = shrub_pct,
@@ -166,8 +210,9 @@ covar_summary <- site_covariates %>%
                         max = ~max(., na.rm = TRUE))))
 
 # Print in readable format
-for (var in c("trees_pct", "grass_pct", "shrub_pct", "flooded_veg_pct", 
-              "urban_pct", "crops_pct", "bare_pct", "habitat_diversity")) {
+for (var in c("area_ha", "log_area", "trees_pct", "grass_pct", "shrub_pct", 
+              "flooded_veg_pct", "urban_pct", "crops_pct", "bare_pct", 
+              "habitat_diversity")) {
   
   mean_val <- covar_summary[[paste0(var, "_mean")]]
   sd_val <- covar_summary[[paste0(var, "_sd")]]
@@ -251,3 +296,9 @@ cat("Saved: site_covariates.rds\n\n")
 
 cat("=== COMPLETE ===\n")
 cat("Site covariates ready for occupancy modeling!\n")
+
+
+
+
+
+
