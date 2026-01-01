@@ -7,7 +7,7 @@
 ##############################
 
 # this script is used for pulling and filtering inat data for select species
-# in our urban green spaces
+# in our urban green spaces (OLD)
 
 library(rinat)
 library(dplyr)
