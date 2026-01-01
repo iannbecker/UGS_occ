@@ -7,7 +7,7 @@
 ##############################
 
 # Extract land cover data for each urban green space site
-# Creates covariate matrix for occupancy modeling
+# and creates covariate matrix for occupancy modeling
 
 library(sf)
 library(terra)
