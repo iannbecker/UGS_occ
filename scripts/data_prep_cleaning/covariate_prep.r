@@ -20,7 +20,7 @@ library(dplyr)
 cat("=== LOADING DATA ===\n\n")
 
 # Load sites
-sites <- st_read("lrgv_green_spaces_combined")
+sites <- st_read("lrgv_green_spaces_detection_filtered")
 n_sites <- nrow(sites)
 
 cat("Loaded", n_sites, "urban green space sites\n")

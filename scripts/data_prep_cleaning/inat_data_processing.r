@@ -35,7 +35,7 @@ cat("=== PART 1: LOADING AND FILTERING iNAT DATA ===\n\n")
 
 # Load raw iNat download
 cat("Loading raw iNaturalist data...\n")
-inat_raw <- read.csv("observations-660979.csv")  # CHANGE THIS to your actual file
+inat_raw <- read.csv(file.path("observations-660979.csv/observations-660979.csv"))  # CHANGE THIS to your actual file
 
 cat("Loaded", nrow(inat_raw), "raw observations\n\n")
 
@@ -79,7 +79,7 @@ cat("Removed:", nrow(inat_raw) - nrow(inat_filtered), "observations\n\n")
 cat("=== PART 2: ASSIGNING OBSERVATIONS TO SITES ===\n\n")
 
 # Load urban green space sites
-sites <- st_read("lrgv_green_spaces_combined")
+sites <- st_read("lrgv_green_spaces_detection_filtered")
 n_sites <- nrow(sites)
 
 cat("Loaded", n_sites, "urban green space sites\n\n")
@@ -204,7 +204,7 @@ generalists <- c(
 # Urban Specialists (4 species)
 specialists <- c(
   "Great Kiskadee",
-  "Couch's Kingbird",
+  "Tropical Kingbird",
   "Green Jay",
   "Long-billed Thrasher",
   "Golden-fronted Woodpecker"

@@ -1,425 +1,268 @@
 ##############################
 #
-# OSM Green Spaces Data Pull
-# 12/20/2025
+# Spatial Data prep
+# 12/15/2025
 # Ian Becker
 #
 ##############################
 
-# Pull various types of urban green spaces from OpenStreetMap
-# for the LRGV study area
+# In this script I pull urban areas for the LRGV
+# I then utilize land cover data to classify urban green spaces
 
-library(osmdata)
-library(sf)
+library(tigris)
 library(dplyr)
+library(sf)
+library(terra)
 
-####################
-#   Setup
-####################
+options(tigris_use_cache = TRUE)
 
-# Load LRGV urban areas to define bounding box
-lrgv_urban <- st_read("lrgv_urban_areas")
+##############################
+#   LRGV Urban Areas
+##############################
 
-# Get bounding box (OSM needs WGS84)
-if (st_crs(lrgv_urban)$input != "EPSG:4326") {
-  lrgv_urban_wgs84 <- st_transform(lrgv_urban, crs = 4326)
-} else {
-  lrgv_urban_wgs84 <- lrgv_urban
-}
+# LRGV counties in Texas
 
-bbox <- st_bbox(lrgv_urban_wgs84)
+lrgv_counties <- c("Starr", "Hidalgo", "Cameron", "Willacy")
 
-cat("Study area bounding box (WGS84):\n")
-cat("  West:", bbox$xmin, "\n")
-cat("  East:", bbox$xmax, "\n")
-cat("  South:", bbox$ymin, "\n")
-cat("  North:", bbox$ymax, "\n\n")
+# Get Texas counties
+tx_counties <- counties(state = "TX", cb = TRUE, year = 2020)
 
-####################
-#   Pull OSM Data
-####################
+# Filter to LRGV
 
-cat("Pulling green spaces from OpenStreetMap...\n")
-cat("This may take a few minutes...\n\n")
+lrgv <- tx_counties %>%
+  filter(NAME %in% lrgv_counties)
 
-all_green_spaces <- list()
+# Check what we got
 
-# 1. Parks and gardens
-cat("1. Pulling parks and gardens...\n")
-tryCatch({
-  parks_osm <- opq(bbox) %>%
-    add_osm_feature(key = "leisure", value = c("park", "garden", "nature_reserve")) %>%
-    osmdata_sf()
+print(lrgv$NAME)
+
+# Save county boundaries
+
+st_write(lrgv, "lrgv_counties.shp", delete_dsn = TRUE)
+
+###################### Download urban areas
+
+cat("\nLoading your existing urban areas shapefile...\n")
+
+# Urban areas shapefile
+
+urban_areas_path <- "tl_2020_us_uac20"
+
+# Load urban areas
+
+urban_areas_all <- st_read(urban_areas_path)
+
+cat("Loaded", nrow(urban_areas_all), "urban areas from shapefile\n")
+
+# Filter to those intersecting LRGV counties
+
+cat("Filtering to LRGV...\n")
+lrgv_urban <- urban_areas_all[lrgv, ]
+
+# Transform to UTM
+
+lrgv_urban_utm <- st_transform(lrgv_urban, crs = 32614)
+
+cat("Found", nrow(lrgv_urban), "urban areas in LRGV\n")
+
+# Check urban areas
+
+print(lrgv_urban$NAME20)
+
+# Save urban areas
+
+st_write(lrgv_urban, "lrgv_urban_areas.shp", delete_dsn = TRUE)
+
+##############################
+#   Urban Green Spaces
+##############################
+
+cat("\nStarting Urban Green Space Classification...\n")
+
+# Load Dynamic World Cover landcover data
+
+landcover <- rast("lrgv_dynamic_world_cover.tif")
+
+# Project landcover to match urban areas CRS (UTM Zone 14N)
+
+landcover_utm <- project(landcover, "EPSG:32614", method = "near")
+lrgv_urban_utm <- st_transform(lrgv_urban_areas, crs = 32614)
+
+cat("Landcover reprojected\n")
+
+# Create 150m hexagonal grid over urban areas
+
+cat("\nCreating 150m hexagonal grid cells...\n")
+
+cell_size <- 150  # 150 meters
+grid_hexagons <- st_make_grid(lrgv_urban_utm, 
+                              cellsize = cell_size, 
+                              square = FALSE)  # FALSE = hexagons
+
+cat("Created", length(grid_hexagons), "total hexagonal cells\n")
+
+# Filter to only cells that intersect urban areas
+
+cat("Filtering to cells within urban boundaries...\n")
+grid_intersects <- st_intersects(grid_hexagons, lrgv_urban_utm, sparse = FALSE)
+grid_urban <- grid_hexagons[apply(grid_intersects, 1, any)]
+
+cat("Retained", length(grid_urban), "cells within urban areas\n")
+
+# Convert to sf object with IDs
+
+grid_urban_sf <- st_sf(
+  cell_id = 1:length(grid_urban),
+  geometry = grid_urban
+)
+
+# Calculate vegetation percentage for each grid cell
+
+cat("\nCalculating vegetation percentage per cell...\n")
+
+# Initialize results dataframe
+
+vegetation_results <- data.frame(
+  cell_id = integer(),
+  trees_pct = numeric(),
+  grass_pct = numeric(),
+  shrub_pct = numeric(),
+  flooded_veg_pct = numeric(),
+  total_veg_pct = numeric(),
+  urban_green_space = logical(),
+  stringsAsFactors = FALSE
+)
+
+# Extract landcover for each cell
+
+for (i in 1:nrow(grid_urban_sf)) {
   
-  if (!is.null(parks_osm$osm_polygons) && nrow(parks_osm$osm_polygons) > 0) {
-    parks <- parks_osm$osm_polygons %>%
-      select(osm_id, name, leisure) %>%
-      mutate(type = "park/garden")
-    all_green_spaces[["parks"]] <- parks
-    cat("  Found", nrow(parks), "parks/gardens\n")
-  } else {
-    cat("  No parks/gardens found\n")
-  }
-}, error = function(e) {
-  cat("  Error:", e$message, "\n")
-})
-
-# 2. University/college campuses
-cat("2. Pulling university/college campuses...\n")
-tryCatch({
-  campuses_osm <- opq(bbox) %>%
-    add_osm_feature(key = "education", value = c("university", "college")) %>%
-    osmdata_sf()
-  
-  if (!is.null(campuses_osm$osm_polygons) && nrow(campuses_osm$osm_polygons) > 0) {
-    campuses <- campuses_osm$osm_polygons %>%
-      select(osm_id, name, amenity) %>%
-      mutate(type = "campus")
-    all_green_spaces[["campuses"]] <- campuses
-    cat("  Found", nrow(campuses), "campuses\n")
-  } else {
-    cat("  No campuses found\n")
-  }
-}, error = function(e) {
-  cat("  Error:", e$message, "\n")
-})
-
-# 3. Cemeteries
-cat("3. Pulling cemeteries...\n")
-tryCatch({
-  cemeteries_osm <- opq(bbox) %>%
-    add_osm_feature(key = "landuse", value = "cemetery") %>%
-    osmdata_sf()
-  
-  if (!is.null(cemeteries_osm$osm_polygons) && nrow(cemeteries_osm$osm_polygons) > 0) {
-    cemeteries <- cemeteries_osm$osm_polygons %>%
-      select(osm_id, name) %>%
-      mutate(type = "cemetery")
-    all_green_spaces[["cemeteries"]] <- cemeteries
-    cat("  Found", nrow(cemeteries), "cemeteries\n")
-  } else {
-    cat("  No cemeteries found\n")
-  }
-}, error = function(e) {
-  cat("  Error:", e$message, "\n")
-})
-
-# 4. Golf courses
-cat("4. Pulling golf courses...\n")
-tryCatch({
-  golf_osm <- opq(bbox) %>%
-    add_osm_feature(key = "leisure", value = "golf_course") %>%
-    osmdata_sf()
-  
-  if (!is.null(golf_osm$osm_polygons) && nrow(golf_osm$osm_polygons) > 0) {
-    golf <- golf_osm$osm_polygons %>%
-      select(osm_id, name) %>%
-      mutate(type = "golf_course")
-    all_green_spaces[["golf"]] <- golf
-    cat("  Found", nrow(golf), "golf courses\n")
-  } else {
-    cat("  No golf courses found\n")
-  }
-}, error = function(e) {
-  cat("  Error:", e$message, "\n")
-})
-
-# 5. Recreation grounds, pitches, playgrounds
-cat("5. Pulling recreation areas...\n")
-tryCatch({
-  recreation_osm <- opq(bbox) %>%
-    add_osm_feature(key = "leisure", value = c("recreation_ground", "pitch", "playground")) %>%
-    osmdata_sf()
-  
-  if (!is.null(recreation_osm$osm_polygons) && nrow(recreation_osm$osm_polygons) > 0) {
-    recreation <- recreation_osm$osm_polygons %>%
-      select(osm_id, name, leisure) %>%
-      mutate(type = "recreation")
-    all_green_spaces[["recreation"]] <- recreation
-    cat("  Found", nrow(recreation), "recreation areas\n")
-  } else {
-    cat("  No recreation areas found\n")
-  }
-}, error = function(e) {
-  cat("  Error:", e$message, "\n")
-})
-
-# 6. Sports centres
-cat("6. Pulling sports centres...\n")
-tryCatch({
-  sports_osm <- opq(bbox) %>%
-    add_osm_feature(key = "leisure", value = "sports_centre") %>%
-    osmdata_sf()
-  
-  if (!is.null(sports_osm$osm_polygons) && nrow(sports_osm$osm_polygons) > 0) {
-    sports <- sports_osm$osm_polygons %>%
-      select(osm_id, name) %>%
-      mutate(type = "sports_centre")
-    all_green_spaces[["sports"]] <- sports
-    cat("  Found", nrow(sports), "sports centres\n")
-  } else {
-    cat("  No sports centres found\n")
-  }
-}, error = function(e) {
-  cat("  Error:", e$message, "\n")
-})
-
-# 7. Plazas and town squares
-cat("7. Pulling plazas...\n")
-tryCatch({
-  plazas_osm <- opq(bbox) %>%
-    add_osm_feature(key = "place", value = c("square", "plaza")) %>%
-    osmdata_sf()
-  
-  if (!is.null(plazas_osm$osm_polygons) && nrow(plazas_osm$osm_polygons) > 0) {
-    plazas <- plazas_osm$osm_polygons %>%
-      select(osm_id, name) %>%
-      mutate(type = "plaza")
-    all_green_spaces[["plazas"]] <- plazas
-    cat("  Found", nrow(plazas), "plazas\n")
-  } else {
-    cat("  No plazas found\n")
-  }
-}, error = function(e) {
-  cat("  Error:", e$message, "\n")
-})
-
-####################
-#   Combine and Clean
-####################
-
-cat("\nCombining all green spaces...\n")
-
-if (length(all_green_spaces) > 0) {
-  
-  # Standardize columns across all datasets
-  standardize_cols <- function(df) {
-    if (!"name" %in% names(df)) df$name <- NA_character_
-    df %>% select(osm_id, name, type, geometry)
+  if (i %% 100 == 0) {
+    cat("Processing cell", i, "of", nrow(grid_urban_sf), 
+        "(", round(i/nrow(grid_urban_sf)*100, 1), "%)\n")
   }
   
-  all_green_spaces_clean <- lapply(all_green_spaces, standardize_cols)
+  grid_cell <- grid_urban_sf[i, ]
   
-  # Combine all
-  combined_green_spaces <- bind_rows(all_green_spaces_clean)
+  # Extract landcover values within this cell
+  lc_values <- terra::extract(landcover_utm, vect(grid_cell), df = TRUE)
   
-  # Transform to UTM for consistency
-  combined_green_spaces_utm <- st_transform(combined_green_spaces, crs = 32614)
-  
-  # Add area and filter by minimum size
-  combined_green_spaces_utm <- combined_green_spaces_utm %>%
-    mutate(
-      area_m2 = as.numeric(st_area(geometry)),
-      area_ha = area_m2 / 10000
-    ) %>%
-    # Filter to reasonably sized spaces (>0.1 ha = 1000 m2)
-    filter(area_ha > 0.1) %>%
-    # Add unique site ID
-    mutate(site_id = row_number())
-  
-  cat("\n=== OSM GREEN SPACES SUMMARY ===\n")
-  cat("Total features:", nrow(combined_green_spaces_utm), "\n")
-  cat("Total area:", round(sum(combined_green_spaces_utm$area_ha), 1), "hectares\n\n")
-  
-  # Summary by type
-  cat("By type:\n")
-  type_summary <- combined_green_spaces_utm %>%
-    st_drop_geometry() %>%
-    group_by(type) %>%
-    summarise(
-      count = n(),
-      total_area_ha = round(sum(area_ha), 1),
-      mean_area_ha = round(mean(area_ha), 2),
-      .groups = "drop"
-    ) %>%
-    arrange(desc(count))
-  
-  print(type_summary)
-  
-  # Size distribution
-  cat("\nSize distribution:\n")
-  combined_green_spaces_utm <- combined_green_spaces_utm %>%
-    mutate(
-      size_class = cut(area_ha, 
-                       breaks = c(0, 1, 5, 10, 50, 100, Inf),
-                       labels = c("<1 ha", "1-5 ha", "5-10 ha", "10-50 ha", "50-100 ha", ">100 ha"))
+  if (nrow(lc_values) == 0) {
+    # No data - assume not green space
+    cell_result <- data.frame(
+      cell_id = grid_cell$cell_id,
+      trees_pct = 0,
+      grass_pct = 0,
+      shrub_pct = 0,
+      flooded_veg_pct = 0,
+      total_veg_pct = 0,
+      urban_green_space = FALSE
     )
-  
-  size_dist <- table(combined_green_spaces_utm$size_class)
-  for (i in 1:length(size_dist)) {
-    cat("  ", names(size_dist)[i], ":", size_dist[i], "sites\n")
-  }
-  
-  # List named sites
-  named_sites <- combined_green_spaces_utm %>%
-    filter(!is.na(name), name != "") %>%
-    arrange(desc(area_ha))
-  
-  if (nrow(named_sites) > 0) {
-    cat("\nLargest named sites:\n")
-    top_sites <- head(named_sites, 20)
-    for (i in 1:nrow(top_sites)) {
-      cat(sprintf("  %2d. %-40s (%s, %.1f ha)\n",
-                  i,
-                  top_sites$name[i],
-                  top_sites$type[i],
-                  top_sites$area_ha[i]))
-    }
-  }
-  
-  ####################
-  #   Filter to Manageable Sites
-  ####################
-  
-  cat("\n=== FILTERING TO MANAGEABLE NUMBER OF SITES ===\n\n")
-  
-  osm_all <- combined_green_spaces_utm  # Keep the full dataset
-  
-  # 1. Keep ONLY named sites (must have identifiable name)
-  cat("1. Filtering to named sites only...\n")
-  osm_filtered <- osm_all %>%
-    filter(!is.na(name) & name != "")
-  
-  cat("   Kept", nrow(osm_filtered), "named sites (removed", nrow(osm_all) - nrow(osm_filtered), "unnamed)\n\n")
-  
-  # 2. Remove plazas and sports centers (not true green spaces)
-  cat("2. Removing plazas and sports centers...\n")
-  osm_filtered <- osm_filtered %>%
-    filter(!type %in% c("plaza", "sports_centre"))
-  
-  cat("   Remaining:", nrow(osm_filtered), "\n\n")
-  
-  # 3. Remove ONLY very large wildlife refuges (>200 ha)
-  # Keep smaller accessible wildlife refuge parcels
-  cat("3. Filtering large wildlife refuges (keeping parcels <200 ha)...\n")
-  osm_filtered <- osm_filtered %>%
-    filter(!(grepl("Wildlife Refuge", name, ignore.case = TRUE) & area_ha > 200))
-  
-  cat("   Remaining:", nrow(osm_filtered), "\n\n")
-  
-  # 4. Size criteria - keep sites between 1-100 ha
-  cat("4. Filtering by size (1-100 hectares)...\n")
-  osm_filtered <- osm_filtered %>%
-    filter(area_ha >= 1, area_ha <= 100)
-  
-  cat("   Remaining:", nrow(osm_filtered), "\n\n")
-  
-  # 5. Keep only areas within census urban boundaries
-  cat("5. Filtering to areas within urban boundaries...\n")
-  
-  # Ensure same CRS
-  lrgv_urban_check <- lrgv_urban_wgs84
-  if (st_crs(osm_filtered) != st_crs(lrgv_urban_check)) {
-    lrgv_urban_check <- st_transform(lrgv_urban_check, st_crs(osm_filtered))
-  }
-  
-  # Find intersection with urban areas
-  urban_intersects <- st_intersects(osm_filtered, lrgv_urban_check, sparse = FALSE)
-  osm_filtered <- osm_filtered[apply(urban_intersects, 1, any), ]
-  
-  cat("   Remaining:", nrow(osm_filtered), "\n\n")
-  
-  # Final sites = all that passed filters
-  final_sites <- osm_filtered %>%
-    mutate(site_id = row_number())
-  
-  ####################
-  #   Final Summary
-  ####################
-  
-  cat("=== FILTERED SITE SUMMARY ===\n")
-  cat("Started with:", nrow(osm_all), "sites\n")
-  cat("Final count:", nrow(final_sites), "\n")
-  cat("Total area:", round(sum(final_sites$area_ha), 1), "hectares\n\n")
-  
-  # By type
-  cat("By type:\n")
-  type_summary_final <- final_sites %>%
-    st_drop_geometry() %>%
-    group_by(type) %>%
-    summarise(
-      count = n(),
-      total_area_ha = round(sum(area_ha), 1),
-      mean_area_ha = round(mean(area_ha), 2),
-      .groups = "drop"
-    ) %>%
-    arrange(desc(count))
-  
-  print(type_summary_final)
-  
-  # Size distribution
-  cat("\nSize distribution:\n")
-  size_dist_final <- table(final_sites$size_class)
-  for (i in 1:length(size_dist_final)) {
-    cat("  ", names(size_dist_final)[i], ":", size_dist_final[i], "sites\n")
-  }
-  
-  # Named vs unnamed
-  named_count <- sum(!is.na(final_sites$name) & final_sites$name != "")
-  cat("\nNamed sites:", named_count, "\n")
-  cat("Unnamed sites:", nrow(final_sites) - named_count, "\n")
-  
-  # Top sites
-  cat("\nTop 20 largest sites:\n")
-  top_sites_final <- final_sites %>%
-    arrange(desc(area_ha)) %>%
-    head(20)
-  
-  for (i in 1:nrow(top_sites_final)) {
-    site_name <- ifelse(is.na(top_sites_final$name[i]) | top_sites_final$name[i] == "", 
-                        "Unnamed", top_sites_final$name[i])
-    cat(sprintf("  %2d. %-50s (%s, %.1f ha)\n",
-                i, site_name, top_sites_final$type[i], top_sites_final$area_ha[i]))
-  }
-  
-  ####################
-  #   Save Results
-  ####################
-  
-  cat("\nSaving results...\n")
-  
-  # Save ALL sites (unfiltered)
-  st_write(osm_all, "lrgv_osm_green_spaces_all.shp", delete_dsn = TRUE)
-  cat("Saved: lrgv_osm_green_spaces_all.shp (all", nrow(osm_all), "sites)\n")
-  
-  # Save FILTERED sites (for occupancy modeling)
-  st_write(final_sites, "lrgv_osm_green_spaces_filtered.shp", delete_dsn = TRUE)
-  cat("Saved: lrgv_osm_green_spaces_filtered.shp (", nrow(final_sites), "sites)\n")
-  
-  # Save summary tables
-  summary_all <- st_drop_geometry(osm_all)
-  write.csv(summary_all, "lrgv_osm_green_spaces_all_summary.csv", row.names = FALSE)
-  cat("Saved: lrgv_osm_green_spaces_all_summary.csv\n")
-  
-  summary_filtered <- st_drop_geometry(final_sites)
-  write.csv(summary_filtered, "lrgv_osm_green_spaces_filtered_summary.csv", row.names = FALSE)
-  cat("Saved: lrgv_osm_green_spaces_filtered_summary.csv\n")
-  
-  ####################
-  #   Recommendation
-  ####################
-  
-  cat("\n=== RECOMMENDATION ===\n")
-  if (nrow(final_sites) > 200) {
-    cat("⚠ Still have", nrow(final_sites), "sites - consider:\n")
-    cat("   - Increasing minimum size to 3 or 5 ha\n")
-    cat("   - Focusing on named sites only\n")
-    cat("   - Selecting specific park types\n")
-  } else if (nrow(final_sites) < 30) {
-    cat("⚠ Only", nrow(final_sites), "sites - consider:\n")
-    cat("   - Lowering minimum size threshold\n")
-    cat("   - Including more unnamed sites\n")
-    cat("   - Adding sites from clustering algorithm\n")
   } else {
-    cat("✓ Good sample size (", nrow(final_sites), "sites)\n")
-    cat("  This should work well for occupancy modeling\n")
+    
+    # Get the landcover column (should be the second column after ID)
+    lc_column <- names(lc_values)[2]
+    total_pixels <- nrow(lc_values)
+    
+    # Count pixels by class
+    lc_summary <- lc_values %>%
+      count(.data[[lc_column]]) %>%
+      mutate(percentage = n / total_pixels * 100)
+    
+    names(lc_summary)[1] <- "class"
+    
+    # Dynamic World Cover classes:
+    # 1 = Trees/Forest
+    # 2 = Grass
+    # 5 = Shrub/Scrub  
+    # 3 = Flooded vegetation
+    
+    trees_pct <- ifelse(1 %in% lc_summary$class, 
+                        lc_summary$percentage[lc_summary$class == 1], 0)
+    grass_pct <- ifelse(2 %in% lc_summary$class, 
+                        lc_summary$percentage[lc_summary$class == 2], 0)
+    shrub_pct <- ifelse(5 %in% lc_summary$class,
+                        lc_summary$percentage[lc_summary$class == 5], 0)
+    flooded_veg_pct <- ifelse(3 %in% lc_summary$class,
+                              lc_summary$percentage[lc_summary$class == 3], 0)
+    
+    # Calculate total vegetation percentage
+    total_veg_pct <- trees_pct + grass_pct + shrub_pct + flooded_veg_pct
+    
+    # Classify as urban green space if ≥50% vegetation
+    is_green_space <- total_veg_pct >= 50
+    
+    cell_result <- data.frame(
+      cell_id = grid_cell$cell_id,
+      trees_pct = trees_pct,
+      grass_pct = grass_pct,
+      shrub_pct = shrub_pct,
+      flooded_veg_pct = flooded_veg_pct,
+      total_veg_pct = total_veg_pct,
+      urban_green_space = is_green_space
+    )
   }
   
-  cat("\n=== OSM DATA PULL COMPLETE ===\n")
-  cat("Use 'lrgv_osm_green_spaces_filtered.shp' for occupancy modeling\n")
-  
-} else {
-  cat("\n⚠ No green spaces found in OSM for this area\n")
-  cat("You may need to use the clustering approach instead\n")
+  vegetation_results <- rbind(vegetation_results, cell_result)
 }
+
+cat("\nVegetation analysis complete!\n")
+
+# Join vegetation results back to spatial grid
+grid_classified <- grid_urban_sf %>%
+  left_join(vegetation_results, by = "cell_id")
+
+# Summary statistics
+cat("\n=== URBAN GREEN SPACE SUMMARY ===\n")
+cat("Total grid cells analyzed:", nrow(grid_classified), "\n")
+cat("Cells classified as urban green space (≥50% veg):", 
+    sum(grid_classified$urban_green_space), "\n")
+cat("Percentage of cells that are green space:", 
+    round(sum(grid_classified$urban_green_space) / nrow(grid_classified) * 100, 1), "%\n")
+
+# Vegetation composition summary
+cat("\n=== VEGETATION COMPOSITION (all cells) ===\n")
+cat("Mean % Trees:", round(mean(grid_classified$trees_pct), 1), "\n")
+cat("Mean % Grass:", round(mean(grid_classified$grass_pct), 1), "\n")
+cat("Mean % Shrub/Scrub:", round(mean(grid_classified$shrub_pct), 1), "\n")
+cat("Mean % Flooded Veg:", round(mean(grid_classified$flooded_veg_pct), 1), "\n")
+cat("Mean % Total Vegetation:", round(mean(grid_classified$total_veg_pct), 1), "\n")
+
+# Green space cells only
+green_cells <- grid_classified %>% filter(urban_green_space == TRUE)
+
+if (nrow(green_cells) > 0) {
+  cat("\n=== VEGETATION COMPOSITION (green space cells only) ===\n")
+  cat("Mean % Trees:", round(mean(green_cells$trees_pct), 1), "\n")
+  cat("Mean % Grass:", round(mean(green_cells$grass_pct), 1), "\n")
+  cat("Mean % Shrub/Scrub:", round(mean(green_cells$shrub_pct), 1), "\n")
+  cat("Mean % Flooded Veg:", round(mean(green_cells$flooded_veg_pct), 1), "\n")
+  cat("Mean % Total Vegetation:", round(mean(green_cells$total_veg_pct), 1), "\n")
+}
+
+# Save results
+cat("\nSaving results...\n")
+
+# Save all classified cells
+st_write(grid_classified, "lrgv_urban_grid_150m_classified.shp", delete_dsn = TRUE)
+cat("Saved: lrgv_urban_grid_150m_classified.shp\n")
+
+# Save only urban green space cells
+st_write(green_cells, "lrgv_urban_green_spaces_150m.shp", delete_dsn = TRUE)
+cat("Saved: lrgv_urban_green_spaces_150m.shp\n")
+
+# Save vegetation results as CSV
+write.csv(vegetation_results, "lrgv_grid_vegetation_data.csv", row.names = FALSE)
+cat("Saved: lrgv_grid_vegetation_data.csv\n")
+
+cat("\n=== PROCESSING COMPLETE ===\n")
+cat("You now have:\n")
+cat("1. All grid cells with vegetation data (lrgv_urban_grid_150m_classified.shp)\n")
+cat("2. Only urban green space cells (lrgv_urban_green_spaces_150m.shp)\n")
+cat("3. Vegetation data table (lrgv_grid_vegetation_data.csv)\n")
+
+
+
+
+
 

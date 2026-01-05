@@ -213,9 +213,11 @@ for (sp in names(all_results)) {
   print(summary(all_results[[sp]]$model))
   
   # Bayesian p-value
-  ppc <- ppcOcc(all_results[[sp]]$model, fit.stat = 'freeman-tukey', group = 2)
+  ppc <- ppcOcc(all_results[[sp]]$model, fit.stat = 'freeman-tukey', group = 1)
   ppc_pval <- mean(ppc$fit.y.rep > ppc$fit.y)
   
   cat("\nBayesian p-value:", round(ppc_pval, 3))
   if (ppc_pval > 0.1 & ppc_pval < 0.9) cat(" ✓\n") else cat(" ⚠\n")
 }
+
+
