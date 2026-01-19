@@ -94,6 +94,7 @@ site_covariates <- data.frame(
   urban_pct = numeric(),
   crops_pct = numeric(),
   bare_pct = numeric(),
+  water_pct = numeric(),
   habitat_diversity = numeric(),
   stringsAsFactors = FALSE
 )
@@ -126,6 +127,7 @@ for (i in 1:n_sites) {
       urban_pct = 0,
       crops_pct = 0,
       bare_pct = 0,
+      water_pct = 0,
       habitat_diversity = 0
     )
     
@@ -166,6 +168,8 @@ for (i in 1:n_sites) {
                         lc_summary$percentage[lc_summary$class == 6], 0)
     bare_pct <- ifelse(7 %in% lc_summary$class, 
                        lc_summary$percentage[lc_summary$class == 7], 0)
+    water_pct <- ifelse(0 %in% lc_summary$class, 
+                        lc_summary$percentage[lc_summary$class == 0], 0)
     
     # Calculate habitat diversity (Shannon index)
     proportions <- lc_summary$percentage / 100
@@ -183,6 +187,7 @@ for (i in 1:n_sites) {
       urban_pct = urban_pct,
       crops_pct = crops_pct,
       bare_pct = bare_pct,
+      water_pct = water_pct,
       habitat_diversity = habitat_diversity
     )
   }
@@ -211,7 +216,7 @@ covar_summary <- site_covariates %>%
 
 # Print in readable format
 for (var in c("area_ha", "log_area", "trees_pct", "grass_pct", "shrub_pct", 
-              "flooded_veg_pct", "urban_pct", "crops_pct", "bare_pct", 
+              "flooded_veg_pct", "urban_pct", "crops_pct", "bare_pct", "water_pct",
               "habitat_diversity")) {
   
   mean_val <- covar_summary[[paste0(var, "_mean")]]
@@ -266,7 +271,7 @@ cat("\n")
 # Flag high correlations
 high_cor <- which(abs(cor_matrix) > 0.6 & abs(cor_matrix) < 1, arr.ind = TRUE)
 if (nrow(high_cor) > 0) {
-  cat("High correlations (|r| > 0.7) detected:\n")
+  cat("High correlations (|r| > 0.6) detected:\n")
   for (i in 1:nrow(high_cor)) {
     var1 <- rownames(cor_matrix)[high_cor[i, 1]]
     var2 <- colnames(cor_matrix)[high_cor[i, 2]]

@@ -80,7 +80,7 @@ cat("Preparing occupancy covariates...\n")
 # Select covariates (7 total - excluding urban_pct and water_pct)
 occ_covs <- site_covs %>%
   select(trees_pct, grass_pct, shrub_pct, flooded_veg_pct, 
-         crops_pct, habitat_diversity, log_area)
+         crops_pct, water_pct, habitat_diversity, log_area)
 
 # Scale covariates
 occ_covs_scaled <- as.data.frame(scale(occ_covs))
@@ -132,11 +132,21 @@ for (i in seq_along(species_list)) {
     }
     year_array_scaled <- (year_array - mean(years)) / sd(years)
     
-    # Create data list
+    #Peak season array (Nov-Apr = 1, May-Oct = 0)
+    peak_months <- c(1, 2, 3, 4, 11, 12)  # Jan-Apr and Nov-Dec
+    peak_season_array <- array(NA, dim = c(n_sites, n_years, n_months))
+    for (m in 1:n_months) {
+      peak_season_array[, , m] <- ifelse(m %in% peak_months, 1, 0)
+    }
+    
+    # Create data list - ADD peak_season here
     data_list <- list(
       y = detection_matrix,
       occ.covs = occ_covs_scaled,
-      det.covs = list(year = year_array_scaled)
+      det.covs = list(
+        year = year_array_scaled,
+        peak_season = peak_season_array
+      )
     )
     
     # Fit model
@@ -144,8 +154,8 @@ for (i in seq_along(species_list)) {
     
     model <- tPGOcc(
       occ.formula = ~ trees_pct + grass_pct + shrub_pct + flooded_veg_pct + 
-        crops_pct + habitat_diversity + log_area,
-      det.formula = ~ year,
+        crops_pct + water_pct + habitat_diversity + log_area,
+      det.formula = ~ year + peak_season,
       data = data_list,
       n.batch = model_settings$n_batch,
       batch.length = model_settings$batch_length,
@@ -220,4 +230,5 @@ for (sp in names(all_results)) {
   if (ppc_pval > 0.1 & ppc_pval < 0.9) cat(" ✓\n") else cat(" ⚠\n")
 }
 
+all_results <- readRDS("all_results_2026-01-13.rds")
 
