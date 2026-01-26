@@ -242,7 +242,7 @@ cat("Sites with no land cover data:", sites_no_data, "\n")
 
 # Check total percentages
 total_pct <- rowSums(site_covariates[, c("trees_pct", "grass_pct", "shrub_pct", 
-                                         "flooded_veg_pct", "urban_pct", 
+                                         "flooded_veg_pct", "urban_pct", "water_pct",
                                          "crops_pct", "bare_pct")])
 
 cat("Total land cover percentage:\n")

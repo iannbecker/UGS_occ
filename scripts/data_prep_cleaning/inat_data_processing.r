@@ -98,7 +98,8 @@ inat_filtered <- inat_filtered %>%
 # Create sf object
 inat_sf <- st_as_sf(inat_filtered,
                     coords = c("longitude", "latitude"),
-                    crs = 4326)
+                    crs = 4326,
+                    remove = FALSE)
 
 # Transform to match sites CRS
 if (st_crs(inat_sf) != st_crs(sites)) {
@@ -118,7 +119,7 @@ obs_in_sites <- st_intersects(inat_sf, sites)
 
 # Add site_id to observations
 inat_sf$site_id <- sapply(obs_in_sites, function(x) {
-  if (length(x) > 0) return(x[1])
+  if (length(x) > 0) return(sites$site_id[x[1]])
   else return(NA)
 })
 
