@@ -120,7 +120,7 @@ plot_marginal_effect <- function(model_result, covariate, site_covs,
     theme(
       plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
       axis.title = element_text(size = 12),
-      axis.text = element_text(size = 10),
+      axis.text = element_text(size = 17),
       panel.grid.minor = element_blank()
     )
   
@@ -134,7 +134,7 @@ plot_marginal_effect <- function(model_result, covariate, site_covs,
 site_covs <- readRDS(file.path(input_dir, "site_covariates.rds"))
 
 covariates <- c("trees_pct", "grass_pct", "shrub_pct", "flooded_veg_pct",
-                "crops_pct", "habitat_diversity", "log_area")
+                "water_pct", "crops_pct", "habitat_diversity", "log_area")
 
 model_files <- list.files(file.path(input_dir, "model_results"), 
                           pattern = "^model_.*\\.rds$", full.names = TRUE)

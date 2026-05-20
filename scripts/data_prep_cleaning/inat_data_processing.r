@@ -15,6 +15,8 @@ library(sf)
 library(dplyr)
 library(lubridate)
 
+setwd("~/Desktop/project_code/UGS_occ/data")
+
 ####################
 #   Setup Output Directory
 ####################
@@ -61,7 +63,7 @@ inat_filtered <- inat_raw %>%
     # Unobscured coordinates  
     coordinates_obscured == "false" | is.na(coordinates_obscured),
     
-    # Good spatial accuracy (≤100m)
+    # Good spatial accuracy (<=100m)
     positional_accuracy <= 100 | is.na(positional_accuracy),
     
     # Has valid coordinates
@@ -98,8 +100,7 @@ inat_filtered <- inat_filtered %>%
 # Create sf object
 inat_sf <- st_as_sf(inat_filtered,
                     coords = c("longitude", "latitude"),
-                    crs = 4326,
-                    remove = FALSE)
+                    crs = 4326)
 
 # Transform to match sites CRS
 if (st_crs(inat_sf) != st_crs(sites)) {
@@ -119,7 +120,7 @@ obs_in_sites <- st_intersects(inat_sf, sites)
 
 # Add site_id to observations
 inat_sf$site_id <- sapply(obs_in_sites, function(x) {
-  if (length(x) > 0) return(sites$site_id[x[1]])
+  if (length(x) > 0) return(x[1])
   else return(NA)
 })
 
@@ -166,7 +167,7 @@ species_summary <- inat_with_sites %>%
   filter(n_observations >= 25) %>%  # Occupancy modeling threshold
   arrange(desc(n_observations))
 
-cat("Species with ≥25 observations:\n")
+cat("Species with >=25 observations:\n")
 cat("Total:", nrow(species_summary), "species\n\n")
 
 # Show top 20
@@ -182,45 +183,12 @@ cat("\nSaved: species_summary_in_sites.csv\n\n")
 
 cat("=== PART 3: BUILDING DETECTION MATRICES ===\n\n")
 
-# Define all species for analysis (15 total)
-
-# Urban Waterbirds (6 species)
-waterbirds <- c(
-  "Black-bellied Whistling-Duck",
-  "Green Heron",
-  "Neotropic Cormorant",
-  "Great Blue Heron",
-  "Great Egret"
-)
-
-# Urban Generalists (5 species)
-generalists <- c(
-  "Great-tailed Grackle",
-  "Northern Mockingbird",
-  "White-winged Dove",
-  "Inca Dove",
-  "Mourning Dove"
-)
-
-# Urban Specialists (4 species)
-specialists <- c(
-  "Great Kiskadee",
-  "Tropical Kingbird",
-  "Green Jay",
-  "Long-billed Thrasher",
-  "Golden-fronted Woodpecker"
-)
-
-# Combine all species
-test_species_list <- c(waterbirds, generalists, specialists)
+# Load species list from CSV (requires column: common_name)
+species_csv <- read.csv("lrgv_ugs_species_FILTERED.csv")
+test_species_list <- species_csv$common_name
 
 cat("Building detection matrices for", length(test_species_list), "species:\n\n")
-cat("URBAN WATERBIRDS (n=5):\n")
-for (sp in waterbirds) cat("  -", sp, "\n")
-cat("\nURBAN GENERALISTS (n=5):\n")
-for (sp in generalists) cat("  -", sp, "\n")
-cat("\nURBAN SPECIALISTS (n=5):\n")
-for (sp in specialists) cat("  -", sp, "\n")
+for (sp in test_species_list) cat("  -", sp, "\n")
 cat("\n")
 
 ####################
@@ -291,7 +259,7 @@ for (test_species in test_species_list) {
     #   Create Detection Matrix
     ####################
     
-    cat("Creating detection matrix [", n_sites, "sites ×", n_years, "years ×", 
+    cat("Creating detection matrix [", n_sites, "sites x", n_years, "years x", 
         n_months, "months]...\n")
     
     # Initialize 3D array
@@ -426,5 +394,5 @@ cat("========================================\n\n")
 
 cat("Created matrices for", length(all_detection_matrices), "species:\n")
 for (sp in names(all_detection_matrices)) {
-  cat("  ✓", sp, "\n")
+  cat("  v", sp, "\n")
 }

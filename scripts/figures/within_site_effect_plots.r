@@ -11,7 +11,7 @@ library(patchwork)
 
 # Set paths
 input_dir <- "/Users/ianbecker/Desktop/project_code/UGS_occ/data"
-output_dir <- "/Users/ianbecker/Desktop/project_code/UGS_occ/figures_tables/within_site"
+output_dir <- "/Users/ianbecker/Desktop/project_code/UGS_occ/figures_tables/within_site_sensitivity"
 
 # Create output directory if needed
 if (!dir.exists(output_dir)) {
@@ -22,15 +22,16 @@ if (!dir.exists(output_dir)) {
 #   Marginal effect function (adapted for within-site)
 ####################
 
-plot_marginal_effect_within <- function(model, covariate, cov_data, 
+plot_marginal_effect_within <- function(model, covariate, cov_data,
+                                        detection_matrix = NULL,
                                         n_points = 100, ci = 0.95) {
   
-  # Get original (unscaled) covariate values for this site
+  # cov_data should be the unscaled covariates
   original_values <- cov_data[[covariate]]
   
-  # Get scaling parameters
+  # Get scaling parameters from original values
   cov_mean <- mean(original_values, na.rm = TRUE)
-  cov_sd <- sd(original_values, na.rm = TRUE)
+  cov_sd   <- sd(original_values, na.rm = TRUE)
   
   # Handle zero variance
   if (is.na(cov_sd) || cov_sd < 0.001) {
@@ -83,9 +84,21 @@ plot_marginal_effect_within <- function(model, covariate, cov_data,
     upper = pred_upper
   )
   
-  # Clean axis label
-  x_label <- gsub("_", " ", covariate)
-  x_label <- tools::toTitleCase(x_label)
+  # Clean axis label — proper display names with units
+  covariate_labels <- c(
+    "trees"             = "Tree Cover (%)",
+    "grass"             = "Grass Cover (%)",
+    "shrub"             = "Shrub Cover (%)",
+    "flooded_veg"       = "Flooded Vegetation Cover (%)",
+    "crops"             = "Crop Cover (%)",
+    "water"             = "Water Cover (%)",
+    "habitat_diversity" = "Habitat Diversity",
+    "habitat_div"       = "Habitat Diversity",
+    "log_area"          = "Site Area (log)"
+  )
+  x_label <- ifelse(covariate %in% names(covariate_labels),
+                    covariate_labels[covariate],
+                    tools::toTitleCase(gsub("_", " ", covariate)))
   
   # Check if effect is significant (CI excludes 0 on logit scale)
   beta_cov <- beta_samples[, cov_index]
@@ -104,22 +117,37 @@ plot_marginal_effect_within <- function(model, covariate, cov_data,
     line_col <- "#495057"
   }
   
+  # Raw data points — naive occupancy per cell (detected in any year/month = 1)
+  obs_df <- NULL
+  if (!is.null(detection_matrix)) {
+    naive_occ <- apply(detection_matrix, 1, function(x) as.numeric(any(x == 1, na.rm = TRUE)))
+    if (length(naive_occ) == length(original_values)) {
+      obs_df <- data.frame(
+        x = original_values,
+        y = naive_occ
+      )
+    }
+  }
+  
   # Create plot
   p <- ggplot() +
     geom_ribbon(data = pred_df, aes(x = x, ymin = lower, ymax = upper),
                 fill = fill_col, alpha = 0.3) +
     geom_line(data = pred_df, aes(x = x, y = mean),
               color = line_col, linewidth = 1) +
+    { if (!is.null(obs_df)) geom_point(data = obs_df, aes(x = x, y = y),
+                                       color = line_col, alpha = 0.5, size = 2) } +
     labs(
-      title = x_label,
-      x = NULL,
-      y = NULL
+      title = NULL,
+      x = x_label,
+      y = "Occupancy Probability"
     ) +
     scale_y_continuous(limits = c(0, 1), breaks = c(0, 0.5, 1)) +
     theme_minimal() +
     theme(
       plot.title = element_text(size = 10, face = "bold", hjust = 0.5),
-      axis.text = element_text(size = 8),
+      axis.text  = element_text(size = 12),
+      axis.title = element_text(size = 13),
       panel.grid.minor = element_blank()
     )
   
@@ -131,7 +159,7 @@ plot_marginal_effect_within <- function(model, covariate, cov_data,
 ####################
 
 # Get all within-site model files
-model_files <- list.files(file.path(input_dir, "within_site_models"), 
+model_files <- list.files(file.path(input_dir, "within_site_models_sensitivity"), 
                           pattern = "\\.rds$", 
                           full.names = TRUE)
 
@@ -167,28 +195,22 @@ for (file in model_files) {
     cov_names <- cov_names[cov_names != "(Intercept)"]
   }
   
-  # Get covariate data (unscaled)
-  cov_data <- result$covariates
-  
-  # If covariates were stored scaled, we need the unscaled version
-  # The covariates in result$covariates should be scaled, so we work with that
-  # and just use the scaled range for plotting
-  
-  # Actually let's use the scaled data directly and label axes as "scaled"
-  # Or we can back-transform - but for simplicity, use scaled
+  # Get covariate data
+  cov_data         <- result$covariates_unscaled  # unscaled — proper x-axis scale
+  detection_matrix <- result$detection_matrix
   
   species_plots <- list()
   
   for (cov in cov_names) {
     
-    # Check if covariate exists in data
     if (!cov %in% names(cov_data)) next
     
     p <- tryCatch({
       plot_marginal_effect_within(
-        model = result$model,
-        covariate = cov,
-        cov_data = cov_data
+        model            = result$model,
+        covariate        = cov,
+        cov_data         = cov_data,
+        detection_matrix = detection_matrix
       )
     }, error = function(e) {
       cat("  Error with", cov, ":", e$message, "\n")
@@ -214,18 +236,10 @@ for (file in model_files) {
   combined <- wrap_plots(species_plots, ncol = ncol) +
     plot_annotation(
       title = paste0(species_name, " - Site ", site_id),
-      subtitle = paste0("Guild: ", guild, " | Cells: ", n_cells, 
-                        " | Naive occ: ", naive_occ, " | PPC p-value: ", ppc_pval),
       theme = theme(
-        plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-        plot.subtitle = element_text(size = 10, hjust = 0.5, color = "gray40")
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5)
       )
     )
-  
-  # Add shared axis labels
-  combined <- combined + 
-    plot_layout(axes = "collect") &
-    theme(axis.title = element_text(size = 9))
   
   # Save
   filename <- paste0(species_filename, "_site", site_id, "_effects.png")
@@ -237,3 +251,4 @@ for (file in model_files) {
 }
 
 cat("\n\nDone! Check", output_dir, "\n")
+

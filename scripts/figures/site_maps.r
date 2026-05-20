@@ -105,28 +105,6 @@ lc_colors <- c(
 )
 
 ####################
-#   Load iNat observations for this site (optional overlay)
-####################
-
-inat <- read.csv(file.path(input_dir, "inat_observations_with_sites.csv"))
-
-# Filter to this site and study species
-waterbirds <- c("Black-bellied Whistling-Duck", "Green Heron", 
-                "Neotropic Cormorant", "Great Blue Heron", "Great Egret")
-
-site_obs <- inat %>%
-  filter(site_id == exemplar_site_id,
-         common_name %in% waterbirds)
-
-cat("Observations at site:", nrow(site_obs), "\n")
-
-# Convert to spatial
-if (nrow(site_obs) > 0) {
-  obs_sf <- st_as_sf(site_obs, coords = c("longitude", "latitude"), crs = 4326)
-  obs_sf <- st_transform(obs_sf, crs = 32614)
-}
-
-####################
 #   Create Map
 ####################
 
