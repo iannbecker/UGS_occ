@@ -148,11 +148,11 @@ p <- ggplot(combined,
   
   theme_classic() +
   theme(
-    axis.title       = element_text(size = 11),
-    axis.text        = element_text(size = 10),
+    axis.title       = element_text(size = 15),
+    axis.text        = element_text(size = 13),
     legend.position  = "right",
-    legend.title     = element_text(size = 9),
-    legend.text      = element_text(size = 8),
+    legend.title     = element_text(size = 11),
+    legend.text      = element_text(size = 10),
     panel.background = element_rect(fill = "white"),
     plot.background  = element_rect(fill = "white", color = NA)
   )
