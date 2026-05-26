@@ -197,8 +197,8 @@ p <- ggplot() +
   
   scale_color_manual(values = cov_colors, guide = "none") +
   
-  # Facet by covariate
-  facet_wrap(~ label, ncol = 4, scales = "free_x") +
+  # Facet by covariate — strip below x-axis
+  facet_wrap(~ label, ncol = 4, scales = "free_x", strip.position = "bottom") +
   
   scale_y_continuous(
     limits = c(0, 1),
@@ -209,18 +209,19 @@ p <- ggplot() +
   scale_x_continuous(n.breaks = 4) +
   
   labs(
-    x = "Covariate value (standardized)",
+    x = NULL,
     y = "Occupancy Probability"
   ) +
   
   theme_classic() +
   theme(
-    strip.text       = element_text(size = 9, face = "bold"),
-    strip.background = element_blank(),
-    axis.text        = element_text(size = 8),
-    axis.title       = element_text(size = 10),
+    strip.text         = element_text(size = 12, face = "bold"),
+    strip.background   = element_blank(),
+    strip.placement    = "outside",
+    axis.text          = element_text(size = 9),
+    axis.title.y       = element_text(size = 10),
     panel.grid.major.y = element_line(color = "gray90", linewidth = 0.3),
-    panel.spacing    = unit(0.8, "lines")
+    panel.spacing      = unit(0.8, "lines")
   )
 
 ggsave(
