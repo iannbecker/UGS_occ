@@ -138,3 +138,48 @@ cat("\nLeast concentrated (highest naive occ):\n")
 print(tail(species_summary %>%
              select(species, mean_naive_occ, n_sites) %>%
              mutate(mean_naive_occ = round(mean_naive_occ * 100, 1)), 5))
+
+# ── Donut chart: mean % area occupied vs unoccupied ───────────────────────────
+overall_mean <- mean(species_summary$mean_naive_occ)
+
+donut_df <- data.frame(
+  category = c("Occupied", "Unoccupied"),
+  value    = c(overall_mean, 1 - overall_mean),
+  label    = c(paste0(round(overall_mean * 100, 1), "%"),
+               paste0(round((1 - overall_mean) * 100, 1), "%"))
+)
+
+donut_df$ymax <- cumsum(donut_df$value)
+donut_df$ymin <- c(0, head(donut_df$ymax, -1))
+donut_df$label_pos <- (donut_df$ymin + donut_df$ymax) / 2
+
+p_donut <- ggplot(donut_df, aes(ymax = ymax, ymin = ymin,
+                                xmax = 4, xmin = 2.5,
+                                fill = category)) +
+  geom_rect() +
+  
+  scale_fill_manual(
+    values = c("Occupied"   = "#1f78b4",
+               "Unoccupied" = "gray85"),
+    name   = NULL
+  ) +
+  
+  coord_polar(theta = "y") +
+  xlim(c(0, 5)) +
+  
+  labs(title = "Mean Within-Site\nSpace Use") +
+  
+  theme_void() +
+  theme(
+    plot.title      = element_text(size = 11, face = "bold",
+                                   hjust = 0.5, vjust = 0),
+    legend.position = "bottom",
+    legend.text     = element_text(size = 10)
+  )
+
+ggsave(
+  file.path(output_dir, "within_site_space_use_donut.png"),
+  p_donut, width = 4, height = 4, dpi = 300, bg = "transparent"
+)
+
+cat("Saved: within_site_space_use_donut.png\n")
