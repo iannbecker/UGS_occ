@@ -1,16 +1,13 @@
 ##############################
 #
-# Landscape Level Spaghetti Plot
-# All Species Response Curves
+# Figure 2: Landscape Occupancy
 # Ian Becker
 # May 2026
 #
 ##############################
 
-# Multi-panel figure showing occupancy response curves for all 38 species
-# across all 8 landscape-level covariates
-# Grey thin lines = individual species, bold dark line = mean across species
-# One panel per covariate
+# This script creates Figure 2 in the manuscript,
+# which shows occupancy response curves for all 38 species across all 8 landscape-level covariates.
 
 library(dplyr)
 library(ggplot2)
@@ -20,7 +17,10 @@ setwd("~/Desktop/project_code/UGS_occ/data")
 
 output_dir <- "/Users/ianbecker/Desktop/project_code/UGS_occ/figures_tables"
 
-# ── Covariate settings ─────────────────────────────────────────────────────────
+# DATA PREP ------------------------------
+
+# Change label and order of covariates for plotting
+
 covariate_info <- list(
   list(param = "grass_pct",          label = "Grass Cover (%)"),
   list(param = "trees_pct",          label = "Tree Cover (%)"),
@@ -32,51 +32,30 @@ covariate_info <- list(
   list(param = "log_area",           label = "Site Area (log)")
 )
 
+# Number of points to predict along each curve
+
 n_points <- 100
 
-# ── Load site covariates for back-transformation ───────────────────────────────
-cat("Loading site covariates...\n")
+# Load in data
+
 site_covs <- read.csv("site_covariates.csv")
 
 # Calculate mean and SD for each covariate
-cov_scales <- data.frame(
-  param    = c("grass_pct", "trees_pct", "shrub_pct", "flooded_veg_pct",
-               "water_pct", "crops_pct", "habitat_diversity", "log_area"),
-  cov_mean = c(mean(site_covs$grass_pct,         na.rm = TRUE),
-               mean(site_covs$trees_pct,         na.rm = TRUE),
-               mean(site_covs$shrub_pct,         na.rm = TRUE),
-               mean(site_covs$flooded_veg_pct,   na.rm = TRUE),
-               mean(site_covs$water_pct,         na.rm = TRUE),
-               mean(site_covs$crops_pct,         na.rm = TRUE),
-               mean(site_covs$habitat_diversity, na.rm = TRUE),
-               mean(site_covs$log_area,          na.rm = TRUE)),
-  cov_sd   = c(sd(site_covs$grass_pct,           na.rm = TRUE),
-               sd(site_covs$trees_pct,           na.rm = TRUE),
-               sd(site_covs$shrub_pct,           na.rm = TRUE),
-               sd(site_covs$flooded_veg_pct,     na.rm = TRUE),
-               sd(site_covs$water_pct,           na.rm = TRUE),
-               sd(site_covs$crops_pct,           na.rm = TRUE),
-               sd(site_covs$habitat_diversity,   na.rm = TRUE),
-               sd(site_covs$log_area,            na.rm = TRUE)),
-  x_min    = c(min(site_covs$grass_pct,          na.rm = TRUE),
-               min(site_covs$trees_pct,          na.rm = TRUE),
-               min(site_covs$shrub_pct,          na.rm = TRUE),
-               min(site_covs$flooded_veg_pct,    na.rm = TRUE),
-               min(site_covs$water_pct,          na.rm = TRUE),
-               min(site_covs$crops_pct,          na.rm = TRUE),
-               min(site_covs$habitat_diversity,  na.rm = TRUE),
-               min(site_covs$log_area,           na.rm = TRUE)),
-  x_max    = c(max(site_covs$grass_pct,          na.rm = TRUE),
-               max(site_covs$trees_pct,          na.rm = TRUE),
-               max(site_covs$shrub_pct,          na.rm = TRUE),
-               max(site_covs$flooded_veg_pct,    na.rm = TRUE),
-               max(site_covs$water_pct,          na.rm = TRUE),
-               max(site_covs$crops_pct,          na.rm = TRUE),
-               max(site_covs$habitat_diversity,  na.rm = TRUE),
-               max(site_covs$log_area,           na.rm = TRUE))
-)
 
-# ── Covariate colors — matching bubble plot ────────────────────────────────────
+cov_scales <- site_covs %>%
+  select(-site_id, -bare_pct, -urban_pct, -area_ha) %>%
+  pivot_longer(everything(), names_to = "param") %>%
+  group_by(param) %>%
+  summarise(
+    cov_mean = mean(value, na.rm = TRUE),
+    cov_sd   = sd(value,   na.rm = TRUE),
+    x_min    = min(value,  na.rm = TRUE),
+    x_max    = max(value,  na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Colors for each covariate
+
 cov_colors <- c(
   "Grass Cover (%)"              = "#a8d08d",
   "Tree Cover (%)"               = "#2d6a2d",
@@ -88,15 +67,14 @@ cov_colors <- c(
   "Site Area (log)"              = "#636363"
 )
 
-cat("Covariate scales loaded\n\n")
+# Load in models
 
-# ── Load models ────────────────────────────────────────────────────────────────
-cat("Loading models...\n")
 all_results <- readRDS("model_results/all_results_2026-03-19.rds")
 successful  <- all_results[sapply(all_results, function(x) x$success)]
 cat("Successful models:", length(successful), "\n\n")
 
-# ── Function to generate predicted occupancy curve for one species/covariate ──
+# HELPER FUNCTION TO GENERATE OCCUPANCY CURVE FOR EACH SPECIES X COVARIATE  ------------------------------
+
 get_curve <- function(model, focal_param, cov_mean, cov_sd, 
                       x_min, x_max, n_points = 100) {
   
@@ -110,9 +88,11 @@ get_curve <- function(model, focal_param, cov_mean, cov_sd,
   if (length(focal_idx) == 0) return(NULL)
   
   # x sequence on original scale, clipped to observed range
+  
   x_original <- seq(x_min, x_max, length.out = n_points)
   
   # Scale for prediction
+  
   x_scaled <- (x_original - cov_mean) / cov_sd
   
   n_samples   <- nrow(beta_samples)
@@ -129,8 +109,7 @@ get_curve <- function(model, focal_param, cov_mean, cov_sd,
   )
 }
 
-# ── Generate all curves ────────────────────────────────────────────────────────
-cat("Generating curves...\n")
+# GENERATE ALL OCCUPANCY CURVES  ------------------------------
 
 all_curves <- data.frame()
 
@@ -162,24 +141,29 @@ for (sp_name in names(successful)) {
 
 cat("Curves generated for", length(unique(all_curves$species)), "species\n\n")
 
-# ── Calculate mean curve per covariate ────────────────────────────────────────
+# CREATE PLOT ------------------------------
+
+# Calulate mean curve for each covariate across species
+
 mean_curves <- all_curves %>%
   group_by(parameter, label, x) %>%
   summarise(mean_occ = mean(mean, na.rm = TRUE), .groups = "drop")
 
-# ── Set covariate panel order ──────────────────────────────────────────────────
+# Set factor levels for plotting
+
 param_order <- sapply(covariate_info, function(x) x$param)
 label_order <- sapply(covariate_info, function(x) x$label)
 
 all_curves$label  <- factor(all_curves$label,  levels = label_order)
 mean_curves$label <- factor(mean_curves$label, levels = label_order)
 
-# ── Plot ───────────────────────────────────────────────────────────────────────
-cat("Building plot...\n")
+
+# Plot
 
 p <- ggplot() +
   
-  # Individual species curves — grey
+  # Individual species curves 
+  
   geom_line(
     data = all_curves,
     aes(x = x, y = mean, group = species),
@@ -189,6 +173,7 @@ p <- ggplot() +
   ) +
   
   # Mean curve — colored by covariate
+  
   geom_line(
     data = mean_curves,
     aes(x = x, y = mean_occ, color = label),
@@ -197,7 +182,8 @@ p <- ggplot() +
   
   scale_color_manual(values = cov_colors, guide = "none") +
   
-  # Facet by covariate — strip below x-axis
+  # Facet by covariate
+  
   facet_wrap(~ label, ncol = 4, scales = "free_x", strip.position = "bottom") +
   
   scale_y_continuous(
@@ -225,8 +211,8 @@ p <- ggplot() +
   )
 
 ggsave(
-  file.path(output_dir, "landscape_spaghetti_plot.png"),
+  file.path(output_dir, "Figure1.png"),
   p, width = 12, height = 6, dpi = 200, bg = "white"
 )
 
-cat("Saved: landscape_spaghetti_plot.png\n")
+cat("Saved: Figure1.png\n")
