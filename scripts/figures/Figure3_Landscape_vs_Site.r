@@ -1,16 +1,13 @@
 ##############################
 #
-# Bubble Plot — Landscape vs Within-Site Coefficients
+# Figure 3: Landscape vs. Site-level Coefficient Comparison
 # Ian Becker
 # May 2026
 #
 ##############################
 
-# X = landscape-level coefficient
-# Y = within-site mean coefficient
-# Bubble size = number of viable sites
-# Color = covariate
-# Quadrants: I & III = concordant, II & IV = discordant (scale flip)
+# This script is used to make Figure 3 in the manuscript;
+# Plot comparing site-level and landscape-level covariates for each species-covariate combination.
 
 library(dplyr)
 library(ggplot2)
@@ -19,10 +16,13 @@ setwd("~/Desktop/project_code/UGS_occ/data")
 
 output_dir <- "/Users/ianbecker/Desktop/project_code/UGS_occ/figures_tables"
 
-# ── Load data ──────────────────────────────────────────────────────────────────
-cat("Loading data...\n")
+# LOAD AND PREP DATA ------------------------------
+
+# Load in landscape-level results
 
 all_results <- readRDS("model_results/all_results_2026-03-19.rds")
+
+# Extract landscape-level coefficients and credible intervals
 
 site_coefs <- data.frame()
 for (sp in names(all_results)) {
@@ -42,6 +42,8 @@ for (sp in names(all_results)) {
   }
 }
 
+# Clean up parameter names 
+
 site_coefs <- site_coefs %>%
   filter(parameter != "(Intercept)") %>%
   mutate(
@@ -49,14 +51,20 @@ site_coefs <- site_coefs %>%
     parameter = gsub("_pct", "", parameter)
   )
 
-# Within-site — average across sites per species
+# Load in site-level results
+
 within_coefs <- read.csv("within_site_models/within_site_results.csv")
+
+# Clean up parameter names to match landscape level
+
 within_coefs <- within_coefs %>%
   filter(parameter != "(Intercept)") %>%
   mutate(
     parameter = gsub("[0-9]+$", "", parameter),
     parameter = gsub("_pct", "", parameter)
   )
+
+# Average within-site coefficients across sites for each species-covariate combination
 
 within_avg <- within_coefs %>%
   group_by(species, parameter) %>%
@@ -66,14 +74,15 @@ within_avg <- within_coefs %>%
     .groups = "drop"
   )
 
-# ── Join landscape and within-site ────────────────────────────────────────────
+# Combine landscape and site-level data
+
 combined <- site_coefs %>%
   inner_join(within_avg, by = c("species", "parameter")) %>%
   filter(!is.na(within_mean))
 
-cat("Species-covariate combinations:", nrow(combined), "\n\n")
 
-# ── Covariate display labels ───────────────────────────────────────────────────
+# Fix labels
+
 cov_labels <- c(
   "trees"             = "Tree Cover",
   "grass"             = "Grass Cover",
@@ -88,18 +97,12 @@ cov_labels <- c(
 combined <- combined %>%
   mutate(
     covariate_label = ifelse(parameter %in% names(cov_labels),
-                             cov_labels[parameter], parameter),
-    # Quadrant classification
-    quadrant = case_when(
-      land_mean > 0 & within_mean > 0 ~ "Concordant positive",
-      land_mean < 0 & within_mean < 0 ~ "Concordant negative",
-      land_mean > 0 & within_mean < 0 ~ "Discordant (+ to -)",
-      land_mean < 0 & within_mean > 0 ~ "Discordant (- to +)",
-      TRUE ~ "Near zero"
-    )
-  )
+                             cov_labels[parameter], parameter))
 
-# ── Color palette for covariates ───────────────────────────────────────────────
+# PLOTTING ------------------------------
+
+# Setup colors for each covariate
+
 cov_colors <- c(
   "Tree Cover"        = "#2d6a2d",
   "Grass Cover"       = "#a8d08d",
@@ -110,20 +113,24 @@ cov_colors <- c(
   "Habitat Diversity" = "#d73027"
 )
 
-# ── Plot ───────────────────────────────────────────────────────────────────────
+# Plot
+
 p <- ggplot(combined,
             aes(x = land_mean, y = within_mean,
                 size = n_sites, color = covariate_label)) +
   
   # Reference lines
+  
   geom_hline(yintercept = 0, linetype = "dashed", color = "gray40", linewidth = 0.5) +
   geom_vline(xintercept = 0, linetype = "dashed", color = "gray40", linewidth = 0.5) +
   
-  # 1:1 concordance line
+  # 1:1 relationship line
+  
   geom_abline(slope = 1, intercept = 0, linetype = "dotted",
               color = "gray60", linewidth = 0.5) +
   
-  # Bubbles
+  # Points
+  
   geom_point(alpha = 0.7, stroke = 0.3) +
   
   scale_color_manual(
@@ -158,23 +165,8 @@ p <- ggplot(combined,
   )
 
 ggsave(
-  file.path(output_dir, "bubble_plot_scale_comparison.png"),
+  file.path(output_dir, "Figure3.png"),
   p, width = 10, height = 6, dpi = 200, bg = "white"
 )
 
-cat("Saved: bubble_plot_scale_comparison.png\n")
-
-# ── Summary by quadrant ────────────────────────────────────────────────────────
-cat("\n=== QUADRANT SUMMARY ===\n\n")
-quad_summary <- combined %>%
-  count(quadrant) %>%
-  mutate(pct = round(n / sum(n) * 100, 1)) %>%
-  arrange(desc(n))
-print(quad_summary)
-
-cat("\n=== BY COVARIATE ===\n\n")
-cov_summary <- combined %>%
-  group_by(covariate_label, quadrant) %>%
-  summarise(n = n(), .groups = "drop") %>%
-  arrange(covariate_label, desc(n))
-print(cov_summary)
+cat("Saved: Figure3.png\n")
