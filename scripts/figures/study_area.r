@@ -199,8 +199,9 @@ species_map <- ggplot() +
   theme_minimal() +
   theme(
     panel.grid = element_blank(),
-    axis.text  = element_text(size = 8),
-    plot.title = element_text(size = 12, face = "bold", hjust = 0.5)
+    axis.text  = element_text(size = 12),
+    axis.title = element_blank(),
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5)
   ) +
   
   labs(x = "Longitude", y = "Latitude")
