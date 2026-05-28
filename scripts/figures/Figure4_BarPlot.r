@@ -1,6 +1,6 @@
 ##############################
 #
-# Within-Site Space Use Bar Chart
+# Figure 4: Bar plot
 # Ian Becker
 # May 2026
 #
