@@ -6,10 +6,10 @@
 #
 ##############################
 
-# Bar chart showing mean naive within-site occupancy per species
-# (mean proportion of hex cells detected across all viable sites)
-# Ordered from most concentrated to least concentrated
-# Illustrates that birds use only a fraction of available space within sites
+# This script creates both parts of Figure 4 in the manuscript
+# This includes:
+#  - Bar chart of mean naive occupancy (proportion of area detected) per species
+#  - Donut chart showing overall mean % area occupied vs unoccupied across all species
 
 library(dplyr)
 library(ggplot2)
@@ -18,10 +18,10 @@ setwd("~/Desktop/project_code/UGS_occ/data")
 
 output_dir <- "/Users/ianbecker/Desktop/project_code/UGS_occ/figures_tables"
 
-# ── Load within-site model summary ────────────────────────────────────────────
-cat("Loading data...\n")
+# LOAD DATA AND PREP------------------------------
 
-# Rebuild summary from individual RDS files
+# Build summary from individual models
+
 model_dir   <- "within_site_models"
 model_files <- list.files(model_dir, pattern = "\\.rds$", full.names = TRUE)
 model_files <- model_files[!grepl("all_results", model_files)]
@@ -47,9 +47,9 @@ for (f in model_files) {
   })
 }
 
-cat("Loaded", nrow(summary_df), "species-site combinations\n\n")
 
-# ── Calculate mean naive occupancy per species ─────────────────────────────────
+# Calculate species-level summary statistics
+
 species_summary <- summary_df %>%
   group_by(species) %>%
   summarise(
@@ -67,15 +67,16 @@ species_summary <- summary_df %>%
     pct_label   = paste0(round(mean_naive_occ * 100, 1), "%")
   )
 
-cat("Species summarized:", nrow(species_summary), "\n")
-cat("Mean naive occupancy across all species:", 
-    round(mean(species_summary$mean_naive_occ) * 100, 1), "%\n\n")
 
-# ── Plot ───────────────────────────────────────────────────────────────────────
+# PLOT BAR CHART ------------------------------
+
+# Create bar plot
+
 p <- ggplot(species_summary,
             aes(x = mean_naive_occ, y = species)) +
   
   # Bars
+  
   geom_col(
     fill  = "#1f78b4",
     alpha = 0.85,
@@ -83,6 +84,7 @@ p <- ggplot(species_summary,
   ) +
   
   # Error bars (SE across sites)
+  
   geom_errorbar(
     aes(xmin = pmax(mean_naive_occ - se_naive_occ, 0),
         xmax = pmin(mean_naive_occ + se_naive_occ, 1)),
@@ -92,6 +94,7 @@ p <- ggplot(species_summary,
   ) +
   
   # Reference line at 50%
+  
   geom_vline(xintercept = 0.5, linetype = "dashed",
              color = "gray50", linewidth = 0.5) +
   
@@ -116,7 +119,8 @@ p <- ggplot(species_summary,
     panel.grid.major.x = element_line(color = "gray90", linewidth = 0.4)
   )
 
-# Dynamic height
+# Height based on number of species
+
 n_species   <- nrow(species_summary)
 plot_height <- max(7, n_species * 0.28)
 
@@ -127,33 +131,30 @@ ggsave(
 
 cat("Saved: within_site_space_use.png\n\n")
 
-# ── Console summary ────────────────────────────────────────────────────────────
-cat("=== SPACE USE SUMMARY ===\n\n")
-cat("Most concentrated (lowest naive occ):\n")
-print(head(species_summary %>% 
-             select(species, mean_naive_occ, n_sites) %>%
-             mutate(mean_naive_occ = round(mean_naive_occ * 100, 1)), 5))
+# PLOT MEAN PERCENTAGE ------------------------------
 
-cat("\nLeast concentrated (highest naive occ):\n")
-print(tail(species_summary %>%
-             select(species, mean_naive_occ, n_sites) %>%
-             mutate(mean_naive_occ = round(mean_naive_occ * 100, 1)), 5))
+# Overall mean percentage of used area
 
-# ── Donut chart: mean % area occupied vs unoccupied ───────────────────────────
 overall_mean <- mean(species_summary$mean_naive_occ)
 
-donut_df <- data.frame(
+# Create data frame
+
+percentage_df <- data.frame(
   category = c("Occupied", "Unoccupied"),
   value    = c(overall_mean, 1 - overall_mean),
   label    = c(paste0(round(overall_mean * 100, 1), "%"),
                paste0(round((1 - overall_mean) * 100, 1), "%"))
 )
 
-donut_df$ymax <- cumsum(donut_df$value)
-donut_df$ymin <- c(0, head(donut_df$ymax, -1))
-donut_df$label_pos <- (donut_df$ymin + donut_df$ymax) / 2
+# Calculate positions for labels
 
-p_donut <- ggplot(donut_df, aes(ymax = ymax, ymin = ymin,
+percentage_df$ymax <- cumsum(percentage_df$value)
+percentage_df$ymin <- c(0, head(percentage_df$ymax, -1))
+percentage_df$label_pos <- (percentage_df$ymin + percentage_df$ymax) / 2
+
+# Plot
+
+p_percentage <- ggplot(percentage_df, aes(ymax = ymax, ymin = ymin,
                                 xmax = 4, xmin = 2.5,
                                 fill = category)) +
   geom_rect() +
@@ -178,8 +179,8 @@ p_donut <- ggplot(donut_df, aes(ymax = ymax, ymin = ymin,
   )
 
 ggsave(
-  file.path(output_dir, "within_site_space_use_donut.png"),
-  p_donut, width = 4, height = 4, dpi = 300, bg = "transparent"
+  file.path(output_dir, "within_site_space_use_percentage.png"),
+  p_percentage, width = 4, height = 4, dpi = 300, bg = "transparent"
 )
 
-cat("Saved: within_site_space_use_donut.png\n")
+cat("Saved: within_site_space_use_percentage.png\n")
