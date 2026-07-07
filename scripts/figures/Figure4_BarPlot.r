@@ -22,7 +22,7 @@ output_dir <- "/Users/ianbecker/Desktop/project_code/UGS_occ/figures_tables"
 
 # Build summary from individual models
 
-model_dir   <- "within_site_models"
+model_dir   <- "within_site_models_gbif"
 model_files <- list.files(model_dir, pattern = "\\.rds$", full.names = TRUE)
 model_files <- model_files[!grepl("all_results", model_files)]
 
@@ -101,10 +101,10 @@ p <- ggplot(species_summary,
   scale_x_continuous(
     labels = scales::percent_format(accuracy = 1),
     limits = c(0, 1),
-    expand = c(0.01, 0)
+    expand = c(0.01, 0.02)
   ) +
   
-  scale_y_discrete(limits = rev(levels(species_summary$species))) +
+  scale_y_discrete(limits = levels(species_summary$species)) +
   
   labs(
     x = "Mean proportion of area detected within site (%)",
