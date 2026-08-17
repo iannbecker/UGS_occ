@@ -6,11 +6,8 @@
 #
 ##############################
 
-# This script checks available within site species-site combos
-# Filtering is now consistent with the within-site modeling script:
-#   - Year filter: 2015-2025
-#   - n_obs counts observations that fall within hex cells (not just site polygon)
-#   - Effort assessment uses same year-filtered data
+# This script checks for viable site-species combinations
+# for site-level models
 
 library(sf)
 library(terra)
@@ -20,75 +17,53 @@ library(tidyr)
 
 setwd("~/Desktop/project_code/UGS_occ/data")
 
-####################
-#   Settings
-####################
+# ============================================================================
+# 1. SETUP AND LOAD DATA
+# ============================================================================
 
 cell_size <- 100  # meters
 min_obs   <- 10   # minimum within-cell observations per species-site
 
-cat("=== WITHIN-SITE VIABILITY ASSESSMENT ===\n")
-cat("Cell size:", cell_size, "m\n")
-cat("Minimum observations:", min_obs, "\n\n")
+# Load in sites and adjust CRS
 
-####################
-#   Load Data
-####################
-
-cat("Loading data...\n")
-
-# Sites
 sites     <- st_read("lrgv_green_spaces_detection_filtered", quiet = TRUE)
 sites_utm <- st_transform(sites, crs = 32614)
-cat("Loaded", nrow(sites), "sites\n")
 
-# iNat observations — apply same filters as modeling script
-inat <- read.csv("inat_observations_with_sites.csv")
-cat("Loaded", nrow(inat), "raw observations\n")
+# iNat observations 
 
-# Parse dates and filter to study period (matching modeling script)
-inat$date  <- as.Date(inat$observed_on)
-inat$year  <- year(inat$date)
-inat$month <- month(inat$date)
-inat <- inat %>% filter(year >= 2015, year <= 2025)
-cat("After year filter (2015-2025):", nrow(inat), "observations\n")
+inat <- read.csv("gbif_in_sites.csv")
 
-# Land cover
+# Load in land cover data
+
 landcover <- rast("lrgv_dynamic_world_cover.tif")
-cat("Loaded land cover raster\n\n")
 
-# Load species list
+# Load in species list
+
 species_csv  <- read.csv("lrgv_ugs_species_FILTERED.csv")
 study_species <- species_csv$common_name
 
-####################
-#   Identify Candidate Site-Species Combinations
-####################
+# ============================================================================
+# 2. SPECIES-SITE COMBINATIONS
+# ============================================================================
 
 cat("=== IDENTIFYING CANDIDATES ===\n\n")
 
-# Pre-filter iNat to study species only for efficiency
+# Pre-filter iNat to study species only 
+
 inat_study <- inat %>% filter(common_name %in% study_species)
 
-cat("Observations of study species:", nrow(inat_study), "\n\n")
-
-####################
-#   Assess Each Site
-####################
-
-cat("=== ASSESSING VIABILITY ===\n\n")
-
 # Get all unique site IDs that have at least one study species observation
-candidate_sites <- unique(inat_study$site_id)
-cat("Sites with study species observations:", length(candidate_sites), "\n\n")
 
-# Initialize results
+candidate_sites <- unique(inat_study$site_id)
+
+# Set up data frame for viability results
+
 viability_results <- data.frame(
   species              = character(),
   guild                = character(),
   site_id              = integer(),
   site_area_ha         = numeric(),
-  n_obs                = integer(),   # within-cell obs after year filter
+  n_obs                = integer(),  
   n_cells_total        = integer(),
   n_cells_with_effort  = integer(),
   n_cells_detected     = integer(),
@@ -107,6 +82,8 @@ viability_results <- data.frame(
 
 total_combos <- 0
 
+# Loop through species for viability analysis
+
 for (sid in candidate_sites) {
   
   cat("--- Site", sid, "---\n")
@@ -120,7 +97,8 @@ for (sid in candidate_sites) {
   
   site_area_ha <- as.numeric(st_area(site)) / 10000
   
-  # ── Build hex grid ───────────────────────────────────────────────────────────
+  ### Build hex grid 
+  
   hex_grid     <- st_make_grid(site, cellsize = cell_size, square = FALSE)
   hex_sf       <- st_sf(geometry = hex_grid)
   hex_filtered <- hex_sf[lengths(st_intersects(hex_sf, site)) > 0, ]
@@ -132,7 +110,8 @@ for (sid in candidate_sites) {
     next
   }
   
-  # ── Assign ALL site observations to cells (effort) ───────────────────────────
+  ### Assign ALL site observations to cells (effort) 
+  
   all_site_obs <- inat %>% filter(site_id == sid)
   
   if (nrow(all_site_obs) == 0) next
@@ -156,7 +135,8 @@ for (sid in candidate_sites) {
   
   hex_effort <- hex_filtered %>% filter(cell_id %in% cells_with_effort)
   
-  # ── Extract covariates for effort cells ──────────────────────────────────────
+  ### Extract covariates for effort cells 
+  
   cov_data <- data.frame(cell_id = hex_effort$cell_id)
   
   for (j in 1:nrow(hex_effort)) {
@@ -199,6 +179,7 @@ for (sid in candidate_sites) {
   }
   
   # Calculate variances
+  
   trees_var   <- var(cov_data$trees_pct,       na.rm = TRUE)
   grass_var   <- var(cov_data$grass_pct,       na.rm = TRUE)
   shrub_var   <- var(cov_data$shrub_pct,       na.rm = TRUE)
@@ -214,7 +195,8 @@ for (sid in candidate_sites) {
   viable_covs <- names(vars)[!is.na(vars) & vars > var_threshold]
   n_viable    <- length(viable_covs)
   
-  # ── Now loop through species at this site ────────────────────────────────────
+  ### Loop through species at this site
+  
   site_species <- inat_study %>%
     filter(site_id == sid) %>%
     pull(common_name) %>%
@@ -226,6 +208,7 @@ for (sid in candidate_sites) {
     if (length(guild) == 0) guild <- NA
     
     # Get species observations and assign to cells
+    
     sp_obs <- inat_study %>% filter(common_name == sp, site_id == sid)
     
     sp_sf <- st_as_sf(sp_obs,
@@ -238,10 +221,12 @@ for (sid in candidate_sites) {
     })
     
     # n_obs = within-cell observations only (consistent with model)
+    
     sp_sf_incells <- sp_sf %>% filter(!is.na(cell_id))
     n_obs_incells <- nrow(sp_sf_incells)
     
     # Skip if below minimum within-cell obs threshold
+    
     if (n_obs_incells < min_obs) next
     
     cells_detected  <- unique(sp_sf_incells$cell_id)
@@ -277,39 +262,17 @@ for (sid in candidate_sites) {
   }
 }
 
-####################
-#   Summary
-####################
 
-cat("\n=== SUMMARY ===\n\n")
-cat("Total site-species combinations:", total_combos, "\n")
-cat("Meeting threshold (>=", min_obs, "within-cell obs):", nrow(viability_results), "\n\n")
+# ============================================================================
+# 3. SAVE RESULTS
+# ============================================================================
 
-cat("By guild:\n")
-print(table(viability_results$guild))
-
-cat("\nWithin-cell obs summary:\n")
-print(summary(viability_results$n_obs))
-
-cat("\nCells with detections summary:\n")
-print(summary(viability_results$n_cells_detected))
-
-cat("\nViable covariates summary:\n")
-print(summary(viability_results$n_viable_covariates))
-
-cat("\nNaive occupancy summary:\n")
-print(summary(viability_results$naive_occupancy))
-
-####################
-#   Save Results
-####################
-
-cat("\n=== SAVING ===\n\n")
+# Save viability assessment
 
 write.csv(viability_results, "within_site_viability_assessment.csv", row.names = FALSE)
-cat("Saved: within_site_viability_assessment.csv\n")
 
 # Species summary
+
 species_summary <- viability_results %>%
   group_by(species, guild) %>%
   summarise(
@@ -323,7 +286,7 @@ species_summary <- viability_results %>%
 
 print(species_summary)
 
-write.csv(species_summary, "within_site_species_summary.csv", row.names = FALSE)
-cat("\nSaved: within_site_species_summary.csv\n")
+# Save species summary
 
-cat("\n=== COMPLETE ===\n")
+write.csv(species_summary, "within_site_species_summary.csv", row.names = FALSE)
+
