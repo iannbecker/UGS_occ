@@ -1,24 +1,25 @@
 ##############################
 #
-# GBIF Detection Matrix Creation
+# iNat Detection Matrix Creation
 # Ian Becker
 # May 2026
 #
 ##############################
 
-# Builds detection matrices from GBIF data for occupancy modeling
-# Uses same species list as original iNat analysis
-# All outputs saved to _gbif directories to avoid overwriting iNat results
+# Builds detection matrices from GBIF (iNat) data for 
+# landscape level occupancy modelling 
 
 library(sf)
 library(dplyr)
 library(lubridate)
 
+# ============================================================================
+# 1. LOAD DATA AND PREP DIRECTORIES
+# ============================================================================
+
 setwd("~/Desktop/project_code/UGS_occ/data")
 
-####################
-#   Setup Output Directory
-####################
+# create detection matrix output directory
 
 if (!dir.exists("detection_matrices_gbif")) {
   dir.create("detection_matrices_gbif")
@@ -27,71 +28,57 @@ if (!dir.exists("detection_matrices_gbif")) {
   cat("Using existing detection_matrices_gbif/ directory\n\n")
 }
 
-####################
-#   Load GBIF Data
-####################
-
-cat("Loading GBIF filtered data...\n")
+# Load in filtered iNat data
 
 gbif_with_sites <- read.csv("gbif_in_sites.csv")
 
-cat("Loaded", nrow(gbif_with_sites), "observations\n")
-cat("Sites represented:", n_distinct(gbif_with_sites$site_id), "\n\n")
+# check numbers 
 
-####################
-#   Load Sites — Filter to GBIF Observed Sites
-####################
+nrow(gbif_with_sites)
+n_distinct(gbif_with_sites$site_id)
 
-cat("Loading site covariates to identify GBIF sites...\n")
+# load in site covariates 
 
 site_covs_gbif <- readRDS("site_covariates_gbif.rds")
 gbif_site_ids  <- sort(unique(site_covs_gbif$site_id))
-n_sites        <- length(gbif_site_ids)
 
-cat("Modeling over", n_sites, "GBIF-observed sites\n")
-cat("Site IDs:", paste(gbif_site_ids, collapse = ", "), "\n\n")
+#  check that numbers match
 
-####################
-#   Load Species List
-####################
+n_sites <- length(gbif_site_ids)
 
-cat("Loading species list...\n")
+# load in species list
 
 species_csv       <- read.csv("lrgv_ugs_species_FILTERED.csv")
 test_species_list <- species_csv$common_name
 
-cat("Species to process:", length(test_species_list), "\n")
+# Check species list 
+
+length(test_species_list)
 for (sp in test_species_list) cat("  -", sp, "\n")
-cat("\n")
 
-####################
-#   Prepare Temporal Data
-####################
+# ============================================================================
+# 2. PREP TEMPORAL DATA
+# ============================================================================
 
-# GBIF uses separate year/month/day columns — confirm and filter
+# Not necessary but sanity check filter to 2015-2025 in case there are any outliers
+
 gbif_with_sites <- gbif_with_sites %>%
   filter(year >= 2015, year <= 2025,
          !is.na(year), !is.na(month))
 
-cat("Filtered to 2015-2025 study period\n")
-cat("Total observations:", nrow(gbif_with_sites), "\n\n")
 
-####################
-#   Define Temporal Structure
-####################
+nrow(gbif_with_sites)
+
+# Setup temporal grain for detection matrices
 
 years    <- 2015:2025
 n_years  <- length(years)
 months   <- 1:12
 n_months <- length(months)
 
-cat("Temporal structure:\n")
-cat("  Primary periods (years):", n_years, "\n")
-cat("  Secondary occasions (months):", n_months, "\n\n")
-
-####################
-#   Loop Through Species
-####################
+# ============================================================================
+# 3. LOOP THROUGH SPECIES CREATING DETECTION MATRICES
+# ============================================================================
 
 all_detection_matrices <- list()
 all_metadata           <- list()
@@ -105,6 +92,7 @@ for (test_species in test_species_list) {
     cat("========================================\n\n")
     
     # Filter to species
+    
     species_data <- gbif_with_sites %>%
       filter(common_name == test_species)
     
@@ -116,9 +104,7 @@ for (test_species in test_species_list) {
       next
     }
     
-    ####################
-    #   Create Detection Matrix
-    ####################
+  #### Create detection matrix
     
     cat("Creating detection matrix [", n_sites, "sites x",
         n_years, "years x", n_months, "months]...\n")
@@ -139,6 +125,7 @@ for (test_species in test_species_list) {
       obs <- species_data[i, ]
       
       # Map original site_id to 1:n_sites index
+      
       site_idx  <- which(gbif_site_ids == obs$site_id)
       year_idx  <- which(years == obs$year)
       month_idx <- obs$month
@@ -152,9 +139,7 @@ for (test_species in test_species_list) {
     
     cat("\nDetection matrix complete!\n\n")
     
-    ####################
-    #   Matrix Summary
-    ####################
+  ### Summarize
     
     sites_with_detections <- apply(detection_matrix, 1, function(x) any(x == 1))
     n_sites_detected      <- sum(sites_with_detections)
@@ -171,17 +156,19 @@ for (test_species in test_species_list) {
     }
     cat("\n")
     
-    ####################
-    #   Save Results
-    ####################
+  ### Save results 
     
     species_filename <- gsub(" ", "_", test_species)
+    
+  # Save detection matrix 
     
     saveRDS(detection_matrix,
             paste0("detection_matrices_gbif/detection_matrix_",
                    species_filename, ".rds"))
     cat("Saved: detection_matrices_gbif/detection_matrix_",
         species_filename, ".rds\n")
+    
+  # Save associated metadata
     
     metadata <- list(
       species          = test_species,
@@ -203,11 +190,15 @@ for (test_species in test_species_list) {
                    species_filename, ".rds"))
     cat("Saved: detection_matrices_gbif/detection_metadata_",
         species_filename, ".rds\n")
+ 
+  # Add to all results list
     
     all_detection_matrices[[test_species]] <- detection_matrix
     all_metadata[[test_species]]           <- metadata
     
     cat("\n", test_species, "COMPLETE\n")
+  
+  # Cleanup to save space
     
     rm(detection_matrix, species_data, sites_with_detections)
     gc(verbose = FALSE)
