@@ -9,7 +9,7 @@
 # This script is used to load in raw eBird data,
 # filter it to checklists submitted at my study sites,
 # and finally filter down using quality control metrics and to
-# the 38 species included in the final within-site analysis
+# the 36 species included in the final within-site analysis
 
 # ============================================================================
 # 1. LOAD IN PACKAGES
@@ -20,7 +20,7 @@ library(tidyverse)
 library(sf)
 
 # ============================================================================
-# 2. USER INPUTS
+# 2. DIRECTORIES AND PREP
 # ============================================================================
 
 # Setup directories
@@ -39,7 +39,6 @@ dir.create(tmp_dir, showWarnings = FALSE)
 county_codes <- c("US-TX-215", "US-TX-061", "US-TX-427", "US-TX-489")
 
 # Hidalgo = 215, Cameron = 061, Starr = 427, Willacy = 489
-
 
 # ============================================================================
 # 3. LOAD STUDY SITES AND SPECIES LIST
@@ -114,7 +113,7 @@ for (i in seq_along(ebd_files)) {
   # before reading into R — this is much faster than reading everything first
   # Each step below adds a filter condition:
   tryCatch({
-    auk_ebd(ebd_file, file_sampling = smp_file) %>%
+  data <- auk_ebd(ebd_file, file_sampling = smp_file) %>%
       
       # Complete checklists only — ensures species not reported = not detected
       # rather than not looked for, which is critical for occupancy modeling
@@ -126,7 +125,7 @@ for (i in seq_along(ebd_files)) {
       
       # Filter to study species before writing to disk — dramatically reduces
       # file size and zerofill memory footprint vs filtering after
-      auk_species(study_species) %>%
+    #  auk_species(study_species) %>%
       
       # Max 6 hours duration — longer checklists cover too large an area
       # and are less comparable across observers
@@ -150,13 +149,15 @@ for (i in seq_along(ebd_files)) {
     # auk_zerofill joins the filtered EBD and sampling files
     # and adds explicit zero records for species not detected on each checklist
     # collapse = TRUE returns one row per checklist-species combination
-    zf <- auk_zerofill(out_ebd, out_smp, collapse = TRUE)
+      zf = auk::read_ebd(out_ebd)
+    
+   #   zf <- auk_zerofill(out_ebd, out_smp, collapse = TRUE)
     
     # Deduplicate — remove any duplicate checklist-species records
-    zf <- zf %>% distinct(checklist_id, scientific_name, .keep_all = TRUE)
+   zf <- zf %>% distinct(checklist_id, scientific_name, .keep_all = TRUE)
     
-    county_data[[i]] <- zf
-    cat("  Checklist-species records after filtering:", nrow(zf), "\n\n")
+   county_data[[i]] <- zf
+   # cat("  Checklist-species records after filtering:", nrow(zf), "\n\n")
     
   }, error = function(e) {
     cat("  ERROR:", e$message, "\n\n")
@@ -183,23 +184,33 @@ ebd_combined <- ebd_combined %>%
 
 nrow(ebd_combined)
 
+ebd_summary <- ebd_combined %>%
+  group_by(common_name) %>%
+  summarise(count = n()) %>%
+  filter(count >= 10)
+
 # ============================================================================
 # 6. ASSIGN CHECKLISTS TO STUDY SITES
 # ============================================================================
 
-# st_intersects returns positional indices — use sites_wgs$site_id[x[1]]
-# to get actual site IDs rather than row positions
+# Change to sf 
 
 ebd_sf <- st_as_sf(ebd_combined,
                    coords = c("longitude", "latitude"),
                    crs = 4326)
 
+# Count checklists per site
+
 obs_in_sites <- st_intersects(ebd_sf, sites_wgs)
+
+# Assign site_id to each checklist based on intersection
 
 ebd_sf$site_id <- sapply(obs_in_sites, function(x) {
   if (length(x) > 0) return(sites_wgs$site_id[x[1]])
   else return(NA)
 })
+
+# Get rid of checklists not in any sites
 
 ebd_in_sites <- ebd_sf %>% filter(!is.na(site_id))
 
@@ -208,9 +219,7 @@ ebd_in_sites <- ebd_sf %>% filter(!is.na(site_id))
 nrow(ebd_in_sites)
 n_distinct(ebd_in_sites$site_id)
 
-# ============================================================================
-# 7. ADD DATE COLUMNS AND DROP GEOMETRY
-# ============================================================================
+# Add date column and drop geometry
 
 ebd_study <- ebd_in_sites %>%
   st_drop_geometry() %>%
@@ -223,13 +232,6 @@ ebd_study <- ebd_in_sites %>%
 # ============================================================================
 # 8. SUMMARY
 # ============================================================================
-
-cat("Sites with eBird data:", n_distinct(ebd_study$site_id), "\n")
-cat("Species included:", n_distinct(ebd_study$common_name), "\n")
-cat("Year range:", min(ebd_study$year), "-", max(ebd_study$year), "\n")
-cat("Total checklist-species records:", nrow(ebd_study), "\n")
-cat("Detections:", sum(ebd_study$species_observed), "\n")
-cat("Non-detections:", sum(!ebd_study$species_observed), "\n\n")
 
 # Species in study list not found in eBird data
 
@@ -245,8 +247,8 @@ if (length(missing_species) > 0) {
 print(ebd_study %>%
         group_by(common_name) %>%
         summarise(
-          n_checklists   = n(),
-          n_detections   = sum(species_observed),
+          n_checklists = n(),
+          n_detections = sum(species_observed),
           detection_rate = round(mean(species_observed), 3),
           .groups = "drop"
         ) %>%
@@ -255,6 +257,8 @@ print(ebd_study %>%
 # ============================================================================
 # 9. SAVE
 # ============================================================================
+
+# save filtered checklist data
 
 write.csv(ebd_study,
           file.path(output_dir, "ebird_filtered_lrgv_with_sites.csv"),
