@@ -60,7 +60,7 @@ cat("  East:", bbox["xmax"], "\n")
 cat("  North:", bbox["ymax"], "\n\n")
 
 #===================================================================
-# PULL OSM GREEN SPACES
+# 1. PULL OSM GREEN SPACES
 #===================================================================
 
 # Query OSM for green spaces
@@ -104,7 +104,7 @@ tryCatch({
 })
 
 #===================================================================
-# PROCESS PULLED OSM GREEN SPACES
+# 2. PROCESS PULLED OSM GREEN SPACES
 #===================================================================
 
 # Extract polygons only (multipolygons and polygons)
