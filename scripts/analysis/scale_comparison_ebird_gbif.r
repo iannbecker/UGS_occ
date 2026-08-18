@@ -1,11 +1,13 @@
 ##############################
 #
-# Two-Way Coefficient Comparison
 # eBird Landscape vs Within-Site GBIF
 # Ian Becker
 # August 2026
 #
 ##############################
+
+# This script compares landscape-level results from ebird to
+# within-site results from iNat
 
 library(dplyr)
 library(tidyr)
@@ -19,13 +21,15 @@ output_dir <- "/Users/ianbecker/Desktop/project_code/UGS_occ/figures_tables"
 # 1. EXTRACT EBIRD LANDSCAPE COEFFICIENTS
 # ============================================================================
 
-cat("Extracting eBird landscape coefficients...\n")
+# Load in eBird landscape-level results
 
 ebird_results <- readRDS(list.files("model_results_ebird_checklist",
                                     pattern = "^all_results_ebird_checklist_.*\\.rds$",
                                     full.names = TRUE)[1])
 
 ebird_coefs <- data.frame()
+
+# Extract landscape-level results by species
 
 for (nm in names(ebird_results)) {
   if (!ebird_results[[nm]]$success) next
@@ -50,17 +54,18 @@ for (nm in names(ebird_results)) {
   }
 }
 
-cat("eBird landscape species:", n_distinct(ebird_coefs$species), "\n\n")
 
 # ============================================================================
-# 2. EXTRACT WITHIN-SITE AVERAGED POSTERIORS (GBIF)
+# 2. EXTRACT WITHIN-SITE AVERAGED POSTERIORS INAT
 # ============================================================================
 
-cat("Extracting within-site averaged posteriors...\n")
+# Get individual inat model files
 
 model_files <- list.files("within_site_models_gbif",
                           pattern = "\\.rds$", full.names = TRUE)
 model_files <- model_files[!grepl("all_results", model_files)]
+
+# Extract wihtin site averaged posteriors for each species and covariate
 
 within_avg <- list()
 
@@ -87,6 +92,8 @@ for (f in model_files) {
   }, error = function(e) NULL)
 }
 
+# Compute mean and credible intervals for each species and covariate
+
 within_coefs <- data.frame()
 
 for (sp in names(within_avg)) {
@@ -107,35 +114,42 @@ for (sp in names(within_avg)) {
   }
 }
 
-cat("Within-site species:", n_distinct(within_coefs$species), "\n\n")
-
 # ============================================================================
-# 3. FILTER TO SHARED SPECIES AND COMBINE
+# 3. FILTER TO SHARED SPECIES AND COMBINE RESULTS
 # ============================================================================
 
-cat("Filtering to shared species...\n")
+# Filter to shared species
 
 shared_species <- intersect(unique(ebird_coefs$species),
                             unique(within_coefs$species))
 
-cat("Species in both datasets:", length(shared_species), "\n\n")
+# Species in shared dataset
+
+length(shared_species)
+
+# helper function to clean names 
 
 clean_params <- function(df) {
   df %>% mutate(parameter = gsub("_pct$", "", parameter))
 }
 
+# Cleanup parameter names
+
 ebird_coefs  <- clean_params(ebird_coefs)  %>% filter(species %in% shared_species)
 within_coefs <- clean_params(within_coefs) %>% filter(species %in% shared_species)
+
+
+# Combine results
 
 all_coefs <- bind_rows(ebird_coefs, within_coefs) %>%
   mutate(source = factor(source,
                          levels = c("eBird Landscape", "Within-Site")))
 
 # ============================================================================
-# 4. CLASSIFICATION
+# 4. SCALE RESULTS CLASSIFICATION
 # ============================================================================
 
-cat("Classifying scale patterns...\n")
+# Classify species-covariate combinations based on significance and direction
 
 comparison <- ebird_coefs %>%
   select(species, parameter, ebird_mean = mean, ebird_lower = lower,
@@ -148,28 +162,26 @@ comparison <- ebird_coefs %>%
   ) %>%
   filter(!is.na(within_dir)) %>%
   mutate(
-    any_sig         = ebird_sig | within_sig,
+    any_sig = ebird_sig | within_sig,
     direction_agree = ebird_dir == within_dir,
     pattern = case_when(
-      !ebird_sig & !within_sig              ~ "no_clear_effect",
-      any_sig & ebird_dir == within_dir     ~ "consistent",
-      any_sig & ebird_dir != within_dir     ~ "scale_difference",
-      TRUE                                  ~ "no_clear_effect"
+      !ebird_sig & !within_sig ~ "no_clear_effect",
+      any_sig & ebird_dir == within_dir ~ "consistent",
+      any_sig & ebird_dir != within_dir ~ "scale_difference",
+      TRUE ~ "no_clear_effect"
     ),
     pattern_label = case_when(
-      pattern == "consistent"       ~ "Consistent",
+      pattern == "consistent" ~ "Consistent",
       pattern == "scale_difference" ~ "Scale Difference",
-      pattern == "no_clear_effect"  ~ "No Clear Effect"
+      pattern == "no_clear_effect" ~ "No Clear Effect"
     )
   )
-
-cat("Classified", nrow(comparison), "species-covariate combinations\n\n")
 
 # ============================================================================
 # 5. SUMMARY
 # ============================================================================
 
-cat("=== OVERALL PATTERN SUMMARY ===\n\n")
+# Overall summary across covariates
 
 pattern_summary <- comparison %>%
   count(pattern_label) %>%
@@ -178,7 +190,7 @@ pattern_summary <- comparison %>%
 
 print(pattern_summary)
 
-cat("\n=== BY COVARIATE ===\n\n")
+# Summary by covariate
 
 cov_summary <- comparison %>%
   group_by(parameter, pattern_label) %>%
@@ -187,7 +199,7 @@ cov_summary <- comparison %>%
 
 print(cov_summary)
 
-cat("\n=== DIRECTION AGREEMENT BY COVARIATE ===\n\n")
+# Direction agreement by covariate
 
 comparison %>%
   group_by(parameter) %>%
@@ -202,7 +214,7 @@ comparison %>%
   arrange(desc(pct_agree)) %>%
   print()
 
-cat("\n=== SCALE DIFFERENCES ===\n\n")
+# Scale differences 
 
 scale_diffs <- comparison %>%
   filter(pattern == "scale_difference") %>%
@@ -210,127 +222,14 @@ scale_diffs <- comparison %>%
          within_mean, within_dir, within_sig) %>%
   arrange(parameter, species)
 
-cat(nrow(scale_diffs), "scale differences:\n")
 print(scale_diffs)
 
 # ============================================================================
-# 6. RESULTS NUMBERS
+# 6. SAVE
 # ============================================================================
 
-cat("\n=== RESULTS NUMBERS BY COVARIATE ===\n\n")
-
-covariates <- unique(comparison$parameter)
-
-for (cov in sort(covariates)) {
-  
-  cov_df     <- comparison %>% filter(parameter == cov)
-  n_species  <- nrow(cov_df)
-  
-  # Landscape (eBird)
-  land_sig_pos <- cov_df %>% filter(ebird_sig & ebird_dir == "positive")
-  land_sig_neg <- cov_df %>% filter(ebird_sig & ebird_dir == "negative")
-  
-  # Within-site
-  site_sig_pos <- cov_df %>% filter(within_sig & within_dir == "positive")
-  site_sig_neg <- cov_df %>% filter(within_sig & within_dir == "negative")
-  
-  cat(cov, ":\n")
-  cat("  Landscape sig positive:", nrow(land_sig_pos), "/", n_species, "\n")
-  cat("  Landscape sig negative:", nrow(land_sig_neg), "/", n_species, "\n")
-  if (nrow(land_sig_pos) > 0)
-    cat("  Land β range positive: [",
-        round(min(land_sig_pos$ebird_mean), 3), "to",
-        round(max(land_sig_pos$ebird_mean), 3), "]\n")
-  if (nrow(land_sig_neg) > 0)
-    cat("  Land β range negative: [",
-        round(min(land_sig_neg$ebird_mean), 3), "to",
-        round(max(land_sig_neg$ebird_mean), 3), "]\n")
-  cat("  Within-site sig positive:", nrow(site_sig_pos), "/", n_species, "\n")
-  cat("  Within-site sig negative:", nrow(site_sig_neg), "/", n_species, "\n")
-  if (nrow(site_sig_pos) > 0)
-    cat("  Site β range positive: [",
-        round(min(site_sig_pos$within_mean), 3), "to",
-        round(max(site_sig_pos$within_mean), 3), "]\n")
-  if (nrow(site_sig_neg) > 0)
-    cat("  Site β range negative: [",
-        round(min(site_sig_neg$within_mean), 3), "to",
-        round(max(site_sig_neg$within_mean), 3), "]\n")
-  cat("\n")
-}
-
-# ============================================================================
-# 7. COEFFICIENT PLOT
-# ============================================================================
-
-cat("Generating comparison plot...\n")
-
-cov_labels <- c(
-  "grass"             = "Grass",
-  "trees"             = "Trees",
-  "shrub"             = "Shrub",
-  "flooded_veg"       = "Flooded Veg",
-  "water"             = "Water",
-  "crops"             = "Crops",
-  "habitat_diversity" = "Hab. Diversity",
-  "log_area"          = "Area (log)"
-)
-
-plot_df <- all_coefs %>%
-  filter(parameter %in% names(cov_labels)) %>%
-  mutate(
-    cov_label = recode(parameter, !!!cov_labels),
-    cov_label = factor(cov_label, levels = cov_labels)
-  )
-
-source_colors <- c(
-  "eBird Landscape" = "#9b2335",
-  "Within-Site"     = "#1f78b4"
-)
-
-p_compare <- ggplot(plot_df,
-                    aes(x = mean, y = species,
-                        color = source, shape = sig)) +
-  geom_vline(xintercept = 0, linetype = "dashed",
-             color = "gray50", linewidth = 0.4) +
-  geom_errorbarh(aes(xmin = lower, xmax = upper),
-                 height = 0, linewidth = 0.35,
-                 position = position_dodge(width = 0.7),
-                 alpha = 0.5) +
-  geom_point(size = 1.8,
-             position = position_dodge(width = 0.7)) +
-  scale_color_manual(values = source_colors, name = NULL) +
-  scale_shape_manual(
-    values = c("TRUE" = 16, "FALSE" = 1),
-    name   = "Significant"
-  ) +
-  facet_wrap(~ cov_label, scales = "free_x", ncol = 4,
-             strip.position = "bottom") +
-  labs(x = "Coefficient (β)", y = NULL) +
-  theme_classic() +
-  theme(
-    axis.text.y        = element_text(size = 5.5, face = "italic"),
-    axis.text.x        = element_text(size = 7),
-    strip.text         = element_text(size = 9, face = "bold"),
-    strip.background   = element_blank(),
-    strip.placement    = "outside",
-    legend.position    = "bottom",
-    panel.grid.major.x = element_line(color = "gray90", linewidth = 0.3),
-    panel.spacing      = unit(0.8, "lines")
-  )
-
-ggsave(
-  file.path(output_dir, "ebird_within_site_comparison.png"),
-  p_compare, width = 16, height = 12, dpi = 300, bg = "white"
-)
-cat("Saved: ebird_within_site_comparison.png\n")
-
-# ============================================================================
-# 8. SAVE
-# ============================================================================
+# Save comparison results
 
 write.csv(comparison,
           file.path(output_dir, "ebird_within_site_comparison_table.csv"),
           row.names = FALSE)
-cat("Saved: ebird_within_site_comparison_table.csv\n")
-
-cat("\n=== COMPLETE ===\n")
