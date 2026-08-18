@@ -231,5 +231,8 @@ for (test_species in test_species_list) {
     cat("\nERROR processing", test_species, ":", e$message, "\n")
     cat("Continuing to next species...\n")
   })
-  cat("ALL DETECTION MATRICES COMPLETE")
+  
+  if(i == length(test_species_list)) {
+    cat("\nAll species processed.\n")
+  }
 }
