@@ -1,17 +1,12 @@
 ##############################
 #
-# eBird Detection Matrix Creation — Checklist Level
+# eBird Detection Matrix Creation — Checklist Subsample
 # Ian Becker
 # August 2026
 #
 ##############################
 
-# Builds detection matrices using individual checklists as detection occasions
-# rather than collapsing to site-year-month level
-# Subsamples to n_sample checklists per site-year to equalize effort
-# Secondary occasions = checklists (up to n_sample per site-year)
-# Primary periods = years (2015-2025)
-# All outputs saved to detection_matrices_ebird_checklist/
+# Builds detection matrices for ebird checklist data for landscape-level occupancy modeling
 
 library(dplyr)
 
