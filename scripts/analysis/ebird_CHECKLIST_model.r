@@ -6,11 +6,8 @@
 #
 ##############################
 
-# Runs landscape-level occupancy models using checklist-level detection matrices
-# Secondary occasions = individual checklists (subsampled, not months)
-# Effort covariates at checklist level — no aggregation needed
-# Both occasion-level (group=1) and site-level (group=2) PPC reported
-# All outputs saved to model_results_ebird_checklist/
+# Runs landscape-level occupancy models using ebird data
+# with checklist-level detection matrices
 
 library(spOccupancy)
 library(dplyr)
@@ -19,50 +16,38 @@ library(coda)
 setwd("~/Desktop/project_code/UGS_occ/data")
 
 # ============================================================================
-# 1. SETUP
+# 1. SETUP AND LOAD DATA
 # ============================================================================
 
-cat("=== BATCH OCCUPANCY MODELING — eBird CHECKLIST LEVEL ===\n\n")
-cat("Starting:", as.character(Sys.time()), "\n\n")
+dir.create("model_results_ebird_checklist")
 
-if (!dir.exists("model_results_ebird_checklist")) {
-  dir.create("model_results_ebird_checklist")
-  cat("Created model_results_ebird_checklist/ directory\n\n")
-}
+# Load in site covariates
 
-# ============================================================================
-# 2. LOAD SITE COVARIATES
-# ============================================================================
-
-cat("Loading site covariates...\n")
 site_covs <- readRDS("site_covariates_ebird.rds")
-cat("Loaded covariates for", nrow(site_covs), "sites\n\n")
 
-# ============================================================================
-# 3. SPECIES LIST
-# ============================================================================
+# Detection matrices file path
 
 detection_files <- list.files("detection_matrices_ebird_checklist/",
                               pattern = "^detection_matrix_.*\\.rds$")
 
+# List of species based on detection matrices
+
 species_list <- gsub("detection_matrix_|.rds", "", detection_files)
 species_list <- gsub("_", " ", species_list)
 
-cat("Found detection matrices for", length(species_list), "species:\n")
-for (sp in species_list) cat("  -", sp, "\n")
-cat("\n")
+# Check detection matrix species 
 
-# ============================================================================
-# 4. LOAD EFFORT LOOKUP
-# ============================================================================
+length(species_list)
 
-cat("Loading effort lookup...\n")
+# Load in effort data
+
 effort_lookup <- readRDS("detection_matrices_ebird_checklist/effort_lookup.rds")
-cat("Effort lookup rows:", nrow(effort_lookup), "\n\n")
 
 # ============================================================================
-# 5. MODEL SETTINGS
+# 2. PREP MODEL PARAMETERS AND VARIABLES
 # ============================================================================
+
+# Model settings
 
 model_settings <- list(
   n_batch       = 1000,
@@ -73,43 +58,27 @@ model_settings <- list(
   n_omp_threads = 1
 )
 
-cat("Model settings:\n")
-cat("  Total iterations per chain:",
-    model_settings$n_batch * model_settings$batch_length, "\n")
-cat("  Burn-in:", model_settings$n_burn, "\n")
-cat("  Thinning:", model_settings$n_thin, "\n")
-cat("  Chains:", model_settings$n_chains, "\n\n")
 
-# ============================================================================
-# 6. PREPARE OCCUPANCY COVARIATES
-# ============================================================================
-
-cat("Preparing occupancy covariates...\n")
+# Setting up occupancy covariates 
 
 occ_covs <- site_covs %>%
   select(trees_pct, grass_pct, shrub_pct, flooded_veg_pct,
          crops_pct, water_pct, habitat_diversity, log_area)
 
+# Scale occupancy covariates
+
 occ_covs_scaled <- as.data.frame(scale(occ_covs))
 
-cat("Occupancy covariates (n=8):\n")
-cat("  -", paste(names(occ_covs_scaled), collapse = "\n  - "), "\n\n")
-
-if (any(is.na(occ_covs_scaled))) {
-  cat("WARNING: NAs detected in covariates!\n")
-  stop("Fix covariate NAs before running models")
-}
-
 # ============================================================================
-# 7. BATCH MODEL FITTING
+# 3. LOOP THROUGH AND FIT MODELS FOR EACH SPECIES 
 # ============================================================================
+
+# Setup results structure
 
 all_results <- list()
 batch_start <- Sys.time()
 
-cat("========================================\n")
-cat("STARTING BATCH MODEL FITTING\n")
-cat("========================================\n\n")
+# Main loop through species 
 
 for (i in seq_along(species_list)) {
   
@@ -133,20 +102,24 @@ for (i in seq_along(species_list)) {
     n_occ    <- metadata$n_occ
     site_ids <- metadata$site_ids
     
-    # ── Year detection covariate ──────────────────────────────────────────────
-    # One value per site-year-occasion — same year value across all occasions
+    ### Year detection covariate 
+    
     year_array <- array(NA, dim = c(n_sites, n_years, n_occ))
     for (j in 1:n_years) year_array[, j, ] <- years[j]
     year_array_scaled <- (year_array - mean(years)) / sd(years)
     
-    # ── Month (peak season) covariate at checklist level ─────────────────────
-    # Built from effort lookup — each occasion has a month value
+    ### Peak season covariate at checklist level
+
     peak_months       <- c(1, 2, 3, 4, 11, 12)
     peak_season_array <- array(NA, dim = c(n_sites, n_years, n_occ))
+    
+    ### Effort covariates
     
     duration_array  <- array(NA, dim = c(n_sites, n_years, n_occ))
     distance_array  <- array(NA, dim = c(n_sites, n_years, n_occ))
     observers_array <- array(NA, dim = c(n_sites, n_years, n_occ))
+    
+    ### Loop through and add effort covariates
     
     for (k in 1:nrow(effort_lookup)) {
       row      <- effort_lookup[k, ]
@@ -165,21 +138,25 @@ for (i in seq_along(species_list)) {
       observers_array[site_idx, year_idx, occ_idx] <- row$number_observers
     }
     
-    # ── Scale effort arrays ───────────────────────────────────────────────────
+    ### Scale effort arrays and impute missing values 
+    
     scale_array <- function(arr) {
       vals <- arr[!is.na(arr)]
       (arr - mean(vals)) / sd(vals)
     }
     
     impute_array <- function(arr) {
-      arr[is.na(arr)] <- 0  # 0 = mean after scaling
+      arr[is.na(arr)] <- 0  
       arr
     }
+    
     
     duration_ready  <- impute_array(scale_array(duration_array))
     distance_ready  <- impute_array(scale_array(distance_array))
     observers_ready <- impute_array(scale_array(observers_array))
     peak_season_array[is.na(peak_season_array)] <- 0
+    
+    ### Prepare data list for occupancy model
     
     data_list <- list(
       y        = detection_matrix,
@@ -193,8 +170,12 @@ for (i in seq_along(species_list)) {
       )
     )
     
+    # Start model time
+    
     model_start <- Sys.time()
     
+    # Model formula (single-species, multi-season)
+
     model <- tPGOcc(
       occ.formula = ~ trees_pct + grass_pct + shrub_pct + flooded_veg_pct +
         crops_pct + water_pct + habitat_diversity + log_area,
@@ -209,14 +190,19 @@ for (i in seq_along(species_list)) {
       verbose       = FALSE
     )
     
+    # Calculate run time for each model
+    
     run_time <- as.numeric(difftime(Sys.time(), model_start, units = "secs"))
     
-    # ── Model fit — both occasion and site level ───────────────────────────────
+    ### Evaluate model fit for each model
+    
     ppc_occ  <- ppcOcc(model, fit.stat = "freeman-tukey", group = 1)
     ppc_site <- ppcOcc(model, fit.stat = "freeman-tukey", group = 2)
     
     ppc_pval_occ  <- mean(ppc_occ$fit.y.rep  > ppc_occ$fit.y)
     ppc_pval_site <- mean(ppc_site$fit.y.rep > ppc_site$fit.y)
+    
+    # Store results for each species
     
     all_results[[species_name]] <- list(
       species        = species_name,
@@ -229,6 +215,8 @@ for (i in seq_along(species_list)) {
       data_source    = "eBird_checklist"
     )
     
+    # Save results for each species
+    
     saveRDS(all_results[[species_name]],
             paste0("model_results_ebird_checklist/model_",
                    species_filename, ".rds"))
@@ -236,6 +224,8 @@ for (i in seq_along(species_list)) {
     cat("done (", round(run_time, 1), "s) | p-val occ:",
         round(ppc_pval_occ, 3), "| p-val site:", round(ppc_pval_site, 3))
     if (ppc_pval_occ > 0.1 & ppc_pval_occ < 0.9) cat(" ✓\n") else cat(" ⚠\n")
+    
+    # Cleanup to save space
     
     rm(model, detection_matrix, data_list,
        year_array, peak_season_array,
@@ -255,19 +245,17 @@ for (i in seq_along(species_list)) {
 }
 
 # ============================================================================
-# 8. SAVE AND SUMMARISE
+# 4. SAVE RESULTS
 # ============================================================================
+
+# Save all results
 
 saveRDS(all_results,
         paste0("model_results_ebird_checklist/all_results_ebird_checklist_",
                Sys.Date(), ".rds"))
 
-cat("\n\nDone!", sum(sapply(all_results, function(x) x$success)), "/",
-    length(species_list), "models fitted\n")
-cat("Total time:",
-    round(difftime(Sys.time(), batch_start, units = "mins"), 1), "min\n\n")
+# Summarize model fit across species
 
-cat("=== FIT SUMMARY ===\n\n")
 for (sp in names(all_results)) {
   if (!all_results[[sp]]$success) {
     cat(sp, "- FAILED\n")
