@@ -105,59 +105,54 @@ for (i in seq_along(ebd_files)) {
   cat("Processing:", basename(ebd_file), "\n")
   
   # Output paths for filtered files
+  
   out_ebd <- file.path(tmp_dir, paste0("filtered_ebd_", i, ".txt"))
   out_smp <- file.path(tmp_dir, paste0("filtered_smp_", i, ".txt"))
   
-  # Build auk filter pipeline
-  # auk works by writing filtered versions of the raw .txt files to disk
-  # before reading into R — this is much faster than reading everything first
-  # Each step below adds a filter condition:
   tryCatch({
   data <- auk_ebd(ebd_file, file_sampling = smp_file) %>%
       
-      # Complete checklists only — ensures species not reported = not detected
-      # rather than not looked for, which is critical for occupancy modeling
+      # Complete checklists only 
+    
       auk_complete() %>%
       
-      # Stationary or traveling protocols only — excludes incidental observations
-      # and other non-standard effort types
+      # Stationary or traveling protocols only 
+    
       auk_protocol(c("Stationary", "Traveling")) %>%
       
-      # Filter to study species before writing to disk — dramatically reduces
-      # file size and zerofill memory footprint vs filtering after
-    #  auk_species(study_species) %>%
+      # Filter to study species 
       
-      # Max 6 hours duration — longer checklists cover too large an area
-      # and are less comparable across observers
+      auk_species(study_species) %>%
+      
+      # Max 6 hours duration 
+    
       auk_duration(c(0, 360)) %>%
       
-      # Max 10 km distance — caps spatial extent of traveling counts
+      # Max 10 km distance 
+    
       auk_distance(c(0, 10)) %>%
       
-      # Study period
+      # Study period (sanity check)
+    
       auk_date(c("2015-01-01", "2025-12-31")) %>%
       
       # Write filtered EBD and sampling files to tmp directory
-      # This is the bottleneck step — reads and filters the raw .txt files
-      # line by line, which can take several minutes per county file
-      auk_filter(file          = out_ebd,
+ 
+      auk_filter(file = out_ebd,
                  file_sampling = out_smp,
                  overwrite     = TRUE)
     
-    cat("  auk_filter complete — reading and zerofilling...\n")
+      cat("  auk_filter complete — reading and zerofilling...\n")
     
-    # auk_zerofill joins the filtered EBD and sampling files
-    # and adds explicit zero records for species not detected on each checklist
-    # collapse = TRUE returns one row per checklist-species combination
-      zf = auk::read_ebd(out_ebd)
+      # Zerofill
     
-   #   zf <- auk_zerofill(out_ebd, out_smp, collapse = TRUE)
+      zf <- auk_zerofill(out_ebd, out_smp, collapse = TRUE)
     
-    # Deduplicate — remove any duplicate checklist-species records
-   zf <- zf %>% distinct(checklist_id, scientific_name, .keep_all = TRUE)
+    # Remove any duplicate checklist-species records
+      
+      zf <- zf %>% distinct(checklist_id, scientific_name, .keep_all = TRUE)
     
-   county_data[[i]] <- zf
-   # cat("  Checklist-species records after filtering:", nrow(zf), "\n\n")
+       county_data[[i]] <- zf
     
   }, error = function(e) {
     cat("  ERROR:", e$message, "\n\n")
