@@ -11,7 +11,7 @@
 
 library(sf)
 library(dplyr)
-library(lubridate)
+library(lubridate) 
 
 # ============================================================================
 # 1. LOAD DATA AND PREP DIRECTORIES
@@ -207,11 +207,13 @@ for (test_species in test_species_list) {
     cat("\nERROR processing", test_species, ":", e$message, "\n")
     cat("Continuing to next species...\n")
   })
+  
+  if(i == length(test_species_list)) {
+    cat("\nAll species processed.\n")
+  }
 }
 
-cat("\n========================================\n")
-cat("ALL DETECTION MATRICES COMPLETE\n")
-cat("========================================\n\n")
+
 
 cat("Created matrices for", length(all_detection_matrices), "species:\n")
 for (sp in names(all_detection_matrices)) {
