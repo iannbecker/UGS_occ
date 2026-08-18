@@ -1,7 +1,6 @@
 ##############################
 #
 # Within-Site Sensitivity Analysis
-# Random Coordinate Jittering (0-100m)
 # Ian Becker
 # May 2026
 #
@@ -10,8 +9,6 @@
 # Sensitivity analysis for within-site occupancy models
 # Tests robustness of results to positional uncertainty in iNat data
 # Randomly jitters all observations 0-100m in a random direction
-# Runs full within-site batch model at 100m cell size
-# Results stored separately for comparison with primary models
 
 library(sf)
 library(terra)
@@ -19,86 +16,65 @@ library(dplyr)
 library(lubridate)
 library(spOccupancy)
 
-####################
-#   Settings
-####################
+# ============================================================================
+# 1. SETUP AND LOAD DATA
+# ============================================================================
 
-cell_size        <- 100    # meters — finer grid for sensitivity analysis
+cell_size        <- 100    
 min_viable_covs  <- 3
 min_cells_effort <- 10
-jitter_seed      <- 42     # for reproducibility
 max_jitter_m     <- 100    # maximum jitter distance in meters
 
-cat("=== WITHIN-SITE SENSITIVITY ANALYSIS ===\n")
-cat("Cell size:", cell_size, "m\n")
-cat("Max jitter distance:", max_jitter_m, "m\n")
-cat("Jitter seed:", jitter_seed, "\n\n")
-
-####################
-#   Setup Output Directory
-####################
+# Output directory
 
 sensitivity_dir <- "within_site_models_sensitivity"
 
-if (!dir.exists(sensitivity_dir)) {
-  dir.create(sensitivity_dir)
-  cat("Created", sensitivity_dir, "directory\n\n")
-}
-
-####################
-#   Load Data
-####################
-
-cat("Loading data...\n")
+# Load in viability analysis
 
 viability <- read.csv("within_site_viability_assessment.csv")
-cat("Loaded viability assessment:", nrow(viability), "combinations\n")
+
+# Filter to viable sites
 
 viable <- viability %>%
   filter(n_viable_covariates >= min_viable_covs,
          n_cells_with_effort >= min_cells_effort)
-cat("Viable combinations after filtering:", nrow(viable), "\n\n")
+
+# Read in urban green space shapefile
 
 sites     <- st_read("lrgv_green_spaces_detection_filtered", quiet = TRUE)
 sites_utm <- st_transform(sites, crs = 32614)
 
-inat <- read.csv("inat_observations_with_sites.csv")
-inat$date  <- as.Date(inat$observed_on)
-inat$year  <- year(inat$date)
-inat$month <- month(inat$date)
-inat <- inat %>% filter(year >= 2015, year <= 2025)
+inat <- read.csv("gbif_in_sites.csv")
+
+# Load in land cover data
 
 landcover <- rast("lrgv_dynamic_world_cover.tif")
 
-cat("Data loaded:", nrow(inat), "observations\n\n")
 
-####################
-#   Apply Random Jitter
-####################
+# ============================================================================
+# 2. APPLY RANDOM POINT JITTER
+# ============================================================================
 
-cat("Applying random coordinate jitter (0-", max_jitter_m, "m)...\n")
-
-set.seed(jitter_seed)
+set.seed(42)
 
 n_obs    <- nrow(inat)
 distance <- runif(n_obs, 0, max_jitter_m)  # random distance 0-100m
 angle    <- runif(n_obs, 0, 2 * pi)         # random direction in radians
 
 # Convert meter offsets to decimal degrees
-# 1 degree latitude  ≈ 111,320m
-# 1 degree longitude ≈ 111,320m * cos(latitude)
+
 lat_rad <- inat$latitude * pi / 180
+
+# Apply jitter
 
 inat$longitude_j <- inat$longitude + (distance * sin(angle)) / (111320 * cos(lat_rad))
 inat$latitude_j  <- inat$latitude  + (distance * cos(angle)) / 111320
 
-cat("Jitter applied\n")
-cat("Mean jitter distance:", round(mean(distance), 1), "m\n")
-cat("Max jitter distance:", round(max(distance), 1), "m\n\n")
+# ============================================================================
+# 3. MODEL AND RESULTS SETUP
+# ============================================================================
 
-####################
-#   Model Settings
-####################
+# Setup model parameters 
 
 model_settings <- list(
   n_batch       = 1000,
@@ -109,19 +85,14 @@ model_settings <- list(
   n_omp_threads = 1
 )
 
+# Setup temporal grain
+
 years    <- 2015:2025
 n_years  <- length(years)
 months   <- 1:12
 n_months <- length(months)
 
-cat("Model settings:\n")
-cat("  Iterations:", model_settings$n_batch * model_settings$batch_length, "\n")
-cat("  Burn-in:", model_settings$n_burn, "\n")
-cat("  Chains:", model_settings$n_chains, "\n\n")
-
-####################
-#   Results Storage
-####################
+# Setup results storage 
 
 all_results <- list()
 summary_results <- data.frame(
@@ -144,15 +115,13 @@ summary_results <- data.frame(
   stringsAsFactors = FALSE
 )
 
-####################
-#   Main Modeling Loop
-####################
-
-cat("========================================\n")
-cat("STARTING SENSITIVITY ANALYSIS MODELS\n")
-cat("========================================\n\n")
+# ============================================================================
+# 4. RUN THROUGH MAIN MODELLING LOOP
+# ============================================================================
 
 batch_start <- Sys.time()
+
+# Start main loop
 
 for (i in 1:nrow(viable)) {
   
@@ -178,6 +147,7 @@ for (i in 1:nrow(viable)) {
     }
     
     # Create hex grid over full site
+    
     hex_grid     <- st_make_grid(site, cellsize = cell_size, square = FALSE)
     hex_sf       <- st_sf(geometry = hex_grid)
     hex_filtered <- hex_sf[lengths(st_intersects(hex_sf, site)) > 0, ]
@@ -187,10 +157,11 @@ for (i in 1:nrow(viable)) {
     cat("  Created", n_cells, "cells\n")
     
     ####################
-    #   Assign JITTERED Observations to Cells
+    #   Assign transformed observations to Cells
     ####################
     
-    # Species observations at this site — using jittered coordinates
+    # Species observations at this site (effort) — using jittered coordinates
+    
     sp_obs <- inat %>% filter(common_name == sp, site_id == sid)
     
     sp_sf <- st_as_sf(sp_obs,
@@ -204,7 +175,8 @@ for (i in 1:nrow(viable)) {
     })
     sp_sf <- sp_sf %>% filter(!is.na(cell_id))
     
-    # All observations at site (effort) — also jittered
+    # All observations at site — also jittered
+    
     all_site_obs <- inat %>% filter(site_id == sid)
     all_sf <- st_as_sf(all_site_obs,
                        coords = c("longitude_j", "latitude_j"),
@@ -222,7 +194,7 @@ for (i in 1:nrow(viable)) {
     cat("  Cells with effort:", n_cells_effort, "of", n_cells, "\n")
     
     ####################
-    #   Extract Covariates (ALL cells)
+    #   Extract Covariates 
     ####################
     
     cov_data <- data.frame(cell_id = hex_filtered$cell_id)
@@ -299,7 +271,7 @@ for (i in 1:nrow(viable)) {
     cat("  Using covariates:", paste(keep_covs, collapse = ", "), "\n")
     
     ####################
-    #   Build Detection Matrix (ALL cells)
+    #   Build Detection Matrix 
     ####################
     
     n_model_cells <- n_cells
@@ -413,7 +385,9 @@ for (i in 1:nrow(viable)) {
       naive_occ           = naive_occ,
       converged           = converged,
       run_time            = run_time,
+      
       # Sensitivity analysis metadata
+      
       sensitivity = list(
         jitter_seed    = jitter_seed,
         max_jitter_m   = max_jitter_m,
@@ -455,86 +429,18 @@ for (i in 1:nrow(viable)) {
   })
 }
 
-####################
-#   Final Summary
-####################
+# ============================================================================
+# 5. SAVE RESULTS
+# ============================================================================
 
-batch_end  <- Sys.time()
-total_time <- difftime(batch_end, batch_start, units = "mins")
-
-cat("\n========================================\n")
-cat("SENSITIVITY ANALYSIS COMPLETE\n")
-cat("========================================\n\n")
-
-cat("Total models attempted:", nrow(viable), "\n")
-cat("Models completed:", nrow(summary_results), "\n")
-cat("Models converged:", sum(summary_results$model_converged), "\n")
-cat("Models passing PPC:", sum(summary_results$ppc_pass), "\n")
-cat("Total run time:", round(total_time, 1), "minutes\n\n")
+# Save summary
 
 write.csv(summary_results,
           file.path(sensitivity_dir, "sensitivity_model_summary.csv"),
           row.names = FALSE)
-cat("Saved: sensitivity_model_summary.csv\n\n")
+
+# Save all model results
 
 saveRDS(all_results,
         file.path(sensitivity_dir, paste0("all_results_sensitivity_", Sys.Date(), ".rds")))
-cat("Saved: all_results_sensitivity_", Sys.Date(), ".rds\n")
-
-####################
-#   Extract Coefficients
-####################
-
-cat("\n=== EXTRACTING COEFFICIENTS ===\n\n")
-
-model_files <- list.files(sensitivity_dir, pattern = "\\.rds$", full.names = TRUE)
-model_files <- model_files[!grepl("all_results", model_files)]
-
-cat("Found", length(model_files), "model files\n\n")
-
-all_coefs <- data.frame()
-
-for (f in model_files) {
-  tryCatch({
-    result <- readRDS(f)
-    sp     <- result$species
-    sid    <- result$site_id
-    model  <- result$model
-    
-    beta_samples <- as.matrix(model$beta.samples)
-    
-    for (p in colnames(beta_samples)) {
-      vals <- beta_samples[, p]
-      coef_row <- data.frame(
-        species   = sp,
-        site_id   = sid,
-        parameter = p,
-        Mean      = mean(vals),
-        SD        = sd(vals),
-        lower     = quantile(vals, 0.025),
-        upper     = quantile(vals, 0.975),
-        Rhat      = ifelse(!is.null(model$rhat$beta[p]), model$rhat$beta[p], NA)
-      )
-      all_coefs <- rbind(all_coefs, coef_row)
-    }
-    cat("Extracted:", sp, "site", sid, "\n")
-  }, error = function(e) {
-    cat("Error with", f, ":", e$message, "\n")
-  })
-}
-
-cat("\n=== SUMMARY ===\n")
-cat("Total coefficients:", nrow(all_coefs), "\n")
-cat("Species:", length(unique(all_coefs$species)), "\n")
-cat("Site-species combinations:", nrow(distinct(all_coefs, species, site_id)), "\n")
-
-write.csv(all_coefs,
-          file.path(sensitivity_dir, "sensitivity_within_site_results.csv"),
-          row.names = FALSE)
-cat("\nSaved: sensitivity_within_site_results.csv\n")
-
-cat("\n=== COMPLETE ===\n")
-cat("Compare sensitivity_within_site_results.csv with\n")
-cat("within_site_models/within_site_results.csv\n")
-cat("to assess robustness to positional uncertainty.\n")
 
