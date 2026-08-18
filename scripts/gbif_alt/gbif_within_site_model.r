@@ -14,58 +14,60 @@ library(spOccupancy)
 
 setwd("~/Desktop/project_code/UGS_occ/data")
 
-####################
-#   Settings
-####################
+# ============================================================================
+# 1. LOAD DATA
+# ============================================================================
 
-cell_size        <- 100
-min_viable_covs  <- 3
+cell_size <- 100  # meters
+min_viable_covs <- 3
 min_cells_effort <- 4
 
-cat("=== BATCH WITHIN-SITE OCCUPANCY MODELING — GBIF ===\n")
-cat("Cell size:", cell_size, "m\n")
-cat("Minimum viable covariates:", min_viable_covs, "\n")
-cat("Minimum cells with effort:", min_cells_effort, "\n\n")
-
-####################
-#   Setup Output Directory
-####################
+# Output Directory
 
 if (!dir.exists("within_site_models_gbif")) {
   dir.create("within_site_models_gbif")
   cat("Created within_site_models_gbif/ directory\n\n")
 }
 
-####################
-#   Load Data
-####################
-
-cat("Loading data...\n")
+# Load in viability assessment 
 
 viability <- read.csv("within_site_viability_assessment_gbif.csv")
-cat("Loaded viability assessment:", nrow(viability), "combinations\n")
+
+# Filter to only viable combinations
 
 viable <- viability %>%
   filter(n_viable_covariates >= min_viable_covs,
          n_cells_with_effort >= min_cells_effort)
-cat("Viable combinations after filtering:", nrow(viable), "\n\n")
 
-sites     <- st_read("lrgv_green_spaces_detection_filtered", quiet = TRUE)
+# Check viable combinations
+
+nrow(viable)
+
+# Read in study sites and change CRS
+
+sites <- st_read("lrgv_green_spaces_detection_filtered", quiet = TRUE)
 sites_utm <- st_transform(sites, crs = 32614)
 
+# Load in iNat data
+
 gbif <- read.csv("gbif_in_sites.csv")
+
+# Check for any missing values
+
 gbif <- gbif %>%
   filter(year >= 2015, year <= 2025,
          !is.na(year), !is.na(month),
          !is.na(site_id))
 
+# Load in landcover data
+
 landcover <- rast("lrgv_dynamic_world_cover.tif")
 
-cat("Data loaded\n\n")
+# ============================================================================
+# 2. MODEL PARAMETERS AND SETUP
+# ============================================================================
 
-####################
-#   Model Settings
-####################
+# Setup model settings
 
 model_settings <- list(
   n_batch       = 1000,
@@ -76,19 +78,14 @@ model_settings <- list(
   n_omp_threads = 1
 )
 
+# Setup temporal grain
+
 years    <- 2015:2025
 n_years  <- length(years)
 months   <- 1:12
 n_months <- length(months)
 
-cat("Model settings:\n")
-cat("  Iterations:", model_settings$n_batch * model_settings$batch_length, "\n")
-cat("  Burn-in:", model_settings$n_burn, "\n")
-cat("  Chains:", model_settings$n_chains, "\n\n")
-
-####################
-#   Results Storage
-####################
+# Results storage
 
 all_results     <- list()
 summary_results <- data.frame(
@@ -111,13 +108,9 @@ summary_results <- data.frame(
   stringsAsFactors = FALSE
 )
 
-####################
-#   Main Modeling Loop
-####################
-
-cat("========================================\n")
-cat("STARTING BATCH MODELING\n")
-cat("========================================\n\n")
+# ============================================================================
+# 3. LOOP THROUGH ALL VIABLE SPECIES-SITE COMBINATIONS AND FIT MODELS 
+# ============================================================================
 
 batch_start <- Sys.time()
 
@@ -140,6 +133,7 @@ for (i in 1:nrow(viable)) {
     }
     
     # Build hex grid
+    
     hex_grid     <- st_make_grid(site, cellsize = cell_size, square = FALSE)
     hex_sf       <- st_sf(geometry = hex_grid)
     hex_filtered <- hex_sf[lengths(st_intersects(hex_sf, site)) > 0, ]
@@ -149,6 +143,7 @@ for (i in 1:nrow(viable)) {
     cat("  Created", n_cells, "cells\n")
     
     # Species observations at this site
+    
     sp_obs <- gbif %>% filter(common_name == sp, site_id == sid)
     
     sp_sf <- st_as_sf(sp_obs,
@@ -163,6 +158,7 @@ for (i in 1:nrow(viable)) {
     sp_sf <- sp_sf %>% filter(!is.na(cell_id))
     
     # All site observations for effort tracking
+    
     all_site_obs <- gbif %>% filter(site_id == sid)
     all_sf <- st_as_sf(all_site_obs,
                        coords = c("decimalLongitude", "decimalLatitude"),
@@ -179,7 +175,8 @@ for (i in 1:nrow(viable)) {
     
     cat("  Cells with effort:", n_cells_effort, "of", n_cells, "\n")
     
-    # Extract covariates for ALL cells
+    # Extract covariates for all cells
+    
     cov_data <- data.frame(cell_id = hex_filtered$cell_id)
     
     for (j in 1:nrow(hex_filtered)) {
@@ -222,6 +219,7 @@ for (i in 1:nrow(viable)) {
     }
     
     # Rename to match viable_covs format
+    
     names(cov_data) <- gsub("habitat_div$", "habitat_diversity", names(cov_data))
     names(cov_data) <- gsub("flooded_veg_pct", "flooded_veg", names(cov_data))
     names(cov_data) <- gsub("_pct", "", names(cov_data))
@@ -253,7 +251,8 @@ for (i in 1:nrow(viable)) {
     
     cat("  Using covariates:", paste(keep_covs, collapse = ", "), "\n")
     
-    # Build detection matrix over ALL cells
+    # Build detection matrix over all cells
+    
     n_model_cells    <- n_cells
     detection_matrix <- array(0,
                               dim = c(n_model_cells, n_years, n_months),
@@ -285,6 +284,7 @@ for (i in 1:nrow(viable)) {
         "| Naive occ:", round(naive_occ, 3), "\n")
     
     # Detection covariates
+    
     year_array <- array(NA, dim = c(n_model_cells, n_years, n_months))
     for (y in 1:n_years) year_array[, y, ] <- years[y]
     year_array_scaled <- (year_array - mean(years)) / sd(years)
@@ -321,7 +321,8 @@ for (i in 1:nrow(viable)) {
       verbose       = FALSE
     )
     
-    # Convergence and fit
+    # Check model convergence and fit 
+    
     model_summary <- summary(model)
     rhat_vals     <- model_summary$beta[, "Rhat"]
     converged     <- all(rhat_vals < 1.1, na.rm = TRUE)
@@ -336,6 +337,7 @@ for (i in 1:nrow(viable)) {
     if (ppc_pass) cat(" ✓\n") else cat(" ⚠\n")
     
     # Store results
+    
     result_name <- paste0(gsub(" ", "_", sp), "_site", sid)
     
     all_results[[result_name]] <- list(
@@ -392,114 +394,23 @@ for (i in 1:nrow(viable)) {
   })
 }
 
-####################
-#   Final Summary
-####################
+# ============================================================================
+# 4. SUMMARY AND SAVE
+# ============================================================================
 
 batch_end  <- Sys.time()
 total_time <- difftime(batch_end, batch_start, units = "mins")
+print(total_toime)
 
-cat("\n========================================\n")
-cat("BATCH MODELING COMPLETE\n")
-cat("========================================\n\n")
-
-cat("Total models attempted:", nrow(viable), "\n")
-cat("Models completed:", nrow(summary_results), "\n")
-cat("Models converged:", sum(summary_results$model_converged), "\n")
-cat("Models passing PPC:", sum(summary_results$ppc_pass), "\n")
-cat("Total run time:", round(total_time, 1), "minutes\n\n")
-
-####################
-#   Save Summary
-####################
+# Save summary
 
 write.csv(summary_results,
           "within_site_model_summary_gbif.csv", row.names = FALSE)
-cat("Saved: within_site_model_summary_gbif.csv\n")
+
+# Save results
 
 saveRDS(all_results,
         paste0("within_site_models_gbif/all_results_gbif_", Sys.Date(), ".rds"))
-cat("Saved: within_site_models_gbif/all_results_gbif_", Sys.Date(), ".rds\n")
 
-####################
-#   Extract Coefficients
-####################
 
-cat("\n=== EXTRACTING WITHIN-SITE COEFFICIENTS ===\n\n")
-
-model_files <- list.files("within_site_models_gbif/",
-                          pattern = "\\.rds$", full.names = TRUE)
-model_files <- model_files[!grepl("all_results", model_files)]
-
-cat("Found", length(model_files), "model files\n\n")
-
-all_coefs <- data.frame()
-
-for (f in model_files) {
-  tryCatch({
-    result <- readRDS(f)
-    sp     <- result$species
-    sid    <- result$site_id
-    model  <- result$model
-    
-    beta_samples <- as.matrix(model$beta.samples)
-    
-    for (p in colnames(beta_samples)) {
-      vals <- beta_samples[, p]
-      
-      coef_row <- data.frame(
-        species   = sp,
-        site_id   = sid,
-        parameter = p,
-        Mean      = mean(vals),
-        SD        = sd(vals),
-        lower     = quantile(vals, 0.025),
-        upper     = quantile(vals, 0.975),
-        Rhat      = ifelse(!is.null(model$rhat$beta[p]),
-                           model$rhat$beta[p], NA)
-      )
-      
-      all_coefs <- rbind(all_coefs, coef_row)
-    }
-    
-    cat("Extracted:", sp, "site", sid, "\n")
-    
-  }, error = function(e) {
-    cat("Error with", f, ":", e$message, "\n")
-  })
-}
-
-cat("\n=== SUMMARY ===\n")
-cat("Total coefficients extracted:", nrow(all_coefs), "\n")
-cat("Species:", length(unique(all_coefs$species)), "\n")
-cat("Site-species combinations:",
-    nrow(distinct(all_coefs, species, site_id)), "\n")
-
-write.csv(all_coefs,
-          "within_site_models_gbif/within_site_results_gbif.csv",
-          row.names = FALSE)
-cat("\nSaved: within_site_models_gbif/within_site_results_gbif.csv\n")
-
-# Species-level summary across sites
-species_summary <- all_coefs %>%
-  filter(parameter != "(Intercept)") %>%
-  mutate(parameter = gsub("[0-9]+$", "", parameter)) %>%
-  group_by(species, parameter) %>%
-  summarise(
-    mean_coef   = mean(Mean,  na.rm = TRUE),
-    mean_lower  = mean(lower, na.rm = TRUE),
-    mean_upper  = mean(upper, na.rm = TRUE),
-    n_sites     = n(),
-    n_sig_pos   = sum(lower > 0),
-    n_sig_neg   = sum(upper < 0),
-    .groups     = "drop"
-  ) %>%
-  arrange(species, parameter)
-
-write.csv(species_summary,
-          "within_site_models_gbif/within_site_species_summary_gbif.csv",
-          row.names = FALSE)
-cat("Saved: within_site_species_summary_gbif.csv\n")
-
-cat("\n=== COMPLETE ===\n")
 
