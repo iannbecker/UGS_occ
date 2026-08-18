@@ -13,23 +13,16 @@ library(dplyr)
 setwd("~/Desktop/project_code/UGS_occ/data")
 
 # ============================================================================
-# 1. SETUP
+# 1. SETUP AND LOAD DATA
 # ============================================================================
 
 n_sample <- 10  # checklists subsampled per site-year
 
-if (!dir.exists("detection_matrices_ebird_checklist")) {
-  dir.create("detection_matrices_ebird_checklist")
-  cat("Created detection_matrices_ebird_checklist/ directory\n\n")
-} else {
-  cat("Using existing detection_matrices_ebird_checklist/ directory\n\n")
-}
+# Create output folder
 
-# ============================================================================
-# 2. LOAD EBIRD DATA
-# ============================================================================
+dir.create("detection_matrices_ebird_checklist")
 
-cat("Loading eBird filtered data...\n")
+# Load in eBird data
 
 ebird <- read.csv("ebird_filtered_lrgv_with_sites.csv") %>%
   mutate(
@@ -41,58 +34,46 @@ ebird <- read.csv("ebird_filtered_lrgv_with_sites.csv") %>%
          !is.na(year), !is.na(month),
          !is.na(site_id))
 
-cat("Loaded", nrow(ebird), "checklist-species records\n")
-cat("Sites represented:", n_distinct(ebird$site_id), "\n\n")
+# Number check 
 
-# ============================================================================
-# 3. IDENTIFY EBIRD SITES
-# ============================================================================
+nrow(ebird)
+n_distinct(ebird$site_id)
 
-cat("Identifying eBird sites...\n")
+# Keep track of site ids and setup for loop
 
 ebird_site_ids <- sort(unique(ebird$site_id))
-n_sites        <- length(ebird_site_ids)
+n_sites <- length(ebird_site_ids)
 
-cat("Modeling over", n_sites, "eBird-observed sites\n\n")
-
-# ============================================================================
-# 4. LOAD SPECIES LIST
-# ============================================================================
-
-cat("Loading species list...\n")
+# Load in species list
 
 species_csv       <- read.csv("lrgv_ugs_species_FILTERED.csv")
 test_species_list <- species_csv$common_name
 
-cat("Species to process:", length(test_species_list), "\n\n")
+# Check species list
 
-# ============================================================================
-# 5. DEFINE TEMPORAL STRUCTURE
-# ============================================================================
+print(test_species_list)
 
-years    <- 2015:2025
+# Setup temporal grain
+
+years <- 2015:2025
 n_years  <- length(years)
-n_occ    <- n_sample  # secondary occasions = subsampled checklists per site-year
-
-cat("Temporal structure:\n")
-cat("  Primary periods (years):", n_years, "\n")
-cat("  Secondary occasions (checklists per site-year):", n_occ, "\n\n")
+n_occ <- n_sample  # secondary occasions = subsampled checklists per site-year
 
 # ============================================================================
-# 6. SUBSAMPLE CHECKLISTS PER SITE-YEAR
+# 2. SUBSAMPLE CHECKLISTS PER SITE-YEAR
 # ============================================================================
 
-cat("Subsampling", n_sample, "checklists per site-year...\n")
+set.seed(42)  
 
-set.seed(42)  # reproducibility
+# Get unique checklists 
 
-# Get unique checklists (not species-level — one row per checklist)
 checklists_all <- ebird %>%
   distinct(checklist_id, site_id, year, month,
            duration_minutes, effort_distance_km, number_observers,
            species_observed, common_name)
 
 # Subsample unique checklist IDs per site-year
+
 sampled_ids <- checklists_all %>%
   distinct(checklist_id, site_id, year) %>%
   group_by(site_id, year) %>%
@@ -100,25 +81,25 @@ sampled_ids <- checklists_all %>%
                               replace = FALSE)) %>%
   ungroup()
 
-cat("Sampled checklist IDs:", nrow(sampled_ids), "\n")
-cat("Site-years with data:", n_distinct(paste(sampled_ids$site_id,
-                                              sampled_ids$year)), "\n\n")
 
 # Filter full data to sampled checklist IDs only
+
 ebird_sampled <- checklists_all %>%
   semi_join(sampled_ids, by = c("checklist_id", "site_id", "year"))
 
 # ============================================================================
-# 7. BUILD EFFORT ARRAYS AT CHECKLIST LEVEL
+# 3. BUILD EFFORT VARIABLES FOR MODELLING
 # ============================================================================
 
 # Assign occasion index (1:n_sample) within each site-year
+
 ebird_sampled <- ebird_sampled %>%
   group_by(site_id, year, checklist_id) %>%
   mutate(occ_idx = cur_group_id()) %>%
   ungroup()
 
 # Map occasion index to 1:n_sample within each site-year
+
 ebird_sampled <- ebird_sampled %>%
   group_by(site_id, year) %>%
   mutate(occ_idx = as.integer(factor(checklist_id,
@@ -126,15 +107,20 @@ ebird_sampled <- ebird_sampled %>%
   ungroup()
 
 # Save effort lookup for modeling script
+
 effort_lookup <- ebird_sampled %>%
   distinct(checklist_id, site_id, year, month, occ_idx,
            duration_minutes, effort_distance_km, number_observers)
 
-cat("Effort lookup rows:", nrow(effort_lookup), "\n\n")
+saveRDS(effort_lookup,
+        "detection_matrices_ebird_checklist/effort_lookup.rds")
+
 
 # ============================================================================
-# 8. BUILD DETECTION MATRICES — LOOP THROUGH SPECIES
+# 4. LOOP TO BUILD SPECIES DETECTION MATRIX 
 # ============================================================================
+
+# Setup output lists
 
 all_detection_matrices <- list()
 all_metadata           <- list()
@@ -163,9 +149,10 @@ for (test_species in test_species_list) {
     cat("Creating detection matrix [", n_sites, "sites x",
         n_years, "years x", n_occ, "occasions]...\n")
     
-    # Initialize with NA — NA = no checklist submitted for that occasion slot
+    # NA = no checklist submitted for that occasion slot
     # 0 = checklist submitted, species not detected
     # 1 = species detected on checklist
+    
     detection_matrix <- array(NA,
                               dim = c(n_sites, n_years, n_occ),
                               dimnames = list(
@@ -202,10 +189,14 @@ for (test_species in test_species_list) {
     
     species_filename <- gsub(" ", "_", test_species)
     
+    # Save detection matrix
+    
     saveRDS(detection_matrix,
             paste0("detection_matrices_ebird_checklist/detection_matrix_",
                    species_filename, ".rds"))
     cat("Saved: detection_matrix_", species_filename, ".rds\n")
+    
+    # Generate detection matrix metadata
     
     metadata <- list(
       species          = test_species,
@@ -220,6 +211,8 @@ for (test_species in test_species_list) {
       data_source      = "eBird_checklist",
       date_created     = Sys.Date()
     )
+    
+    # Save metadata
     
     saveRDS(metadata,
             paste0("detection_matrices_ebird_checklist/detection_metadata_",
@@ -238,24 +231,5 @@ for (test_species in test_species_list) {
     cat("\nERROR processing", test_species, ":", e$message, "\n")
     cat("Continuing to next species...\n")
   })
+  cat("ALL DETECTION MATRICES COMPLETE")
 }
-
-# ============================================================================
-# 9. SAVE EFFORT LOOKUP
-# ============================================================================
-
-saveRDS(effort_lookup,
-        "detection_matrices_ebird_checklist/effort_lookup.rds")
-cat("\nSaved: effort_lookup.rds\n")
-
-# ============================================================================
-# 10. FINAL SUMMARY
-# ============================================================================
-
-cat("\n========================================\n")
-cat("ALL DETECTION MATRICES COMPLETE\n")
-cat("========================================\n\n")
-
-cat("Created matrices for", length(all_detection_matrices), "species\n")
-cat("Subsampled", n_sample, "checklists per site-year\n")
-cat("Matrix dimensions: [", n_sites, "x", n_years, "x", n_occ, "]\n")
