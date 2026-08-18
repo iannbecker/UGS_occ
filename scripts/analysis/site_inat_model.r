@@ -7,8 +7,6 @@
 ##############################
 
 # Within site batch modelling for all viable species-site combinations
-# Updated: models over ALL hex cells in viable sites (not just effort cells)
-# Effort cells used only for viability filtering, not spatial extent
 
 library(sf)
 library(terra)
@@ -16,44 +14,41 @@ library(dplyr)
 library(lubridate)
 library(spOccupancy)
 
-####################
-#   Settings
-####################
+# ============================================================================
+# 1. MODEL SETUP AND LOAD DATA
+# ============================================================================
 
 cell_size <- 100  # meters
 min_viable_covs <- 3
 min_cells_effort <- 4
 
-cat("=== BATCH WITHIN-SITE OCCUPANCY MODELING ===\n")
-cat("Cell size:", cell_size, "m\n")
-cat("Minimum viable covariates:", min_viable_covs, "\n")
-cat("Minimum cells with effort:", min_cells_effort, "\n\n")
-
-####################
-#   Setup Output Directory
-####################
+# Output Directory
 
 if (!dir.exists("within_site_models")) {
   dir.create("within_site_models")
   cat("Created within_site_models/ directory\n\n")
 }
 
-####################
-#   Load Data
-####################
-
-cat("Loading data...\n")
+# Load in viability assessment 
 
 viability <- read.csv("within_site_viability_assessment.csv")
-cat("Loaded viability assessment:", nrow(viability), "combinations\n")
+
+# Filter to only viable combinations
 
 viable <- viability %>%
   filter(n_viable_covariates >= min_viable_covs,
          n_cells_with_effort >= min_cells_effort)
-cat("Viable combinations after filtering:", nrow(viable), "\n\n")
+
+# Check viable combinations
+
+nrow(viable)
+
+# Read in study sites and change CRS
 
 sites <- st_read("lrgv_green_spaces_detection_filtered", quiet = TRUE)
 sites_utm <- st_transform(sites, crs = 32614)
+
+# Load in inat data
 
 inat <- read.csv("inat_observations_with_sites.csv")
 inat$date  <- as.Date(inat$observed_on)
