@@ -46,7 +46,7 @@ county_codes <- c("US-TX-215", "US-TX-061", "US-TX-427", "US-TX-489")
 
 # Load study sites shapefile and convert crs
 
-sites <- st_read(file.path(input_dir, "lrgv_green_spaces_gbif"),
+sites <- st_read(file.path(input_dir, "lrgv_green_spaces_ebird"),
                      quiet = TRUE)
 sites_wgs <- st_transform(sites, crs = 4326)
 
