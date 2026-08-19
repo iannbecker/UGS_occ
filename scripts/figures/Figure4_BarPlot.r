@@ -18,7 +18,9 @@ setwd("~/Desktop/project_code/UGS_occ/data")
 
 output_dir <- "/Users/ianbecker/Desktop/project_code/UGS_occ/figures_tables"
 
-# LOAD DATA AND PREP------------------------------
+# ============================================================================
+# 1. SETUP AND LOAD DATA
+# ============================================================================
 
 # Build summary from individual models
 
@@ -52,6 +54,8 @@ for (f in model_files) {
 
 species_summary <- summary_df %>%
   group_by(species) %>%
+  filter(species != "Domestic Muscovy Duck") %>%
+  filter(species != "Feral Pigeon") %>%
   summarise(
     mean_naive_occ   = mean(naive_occ, na.rm = TRUE),
     sd_naive_occ     = sd(naive_occ, na.rm = TRUE),
@@ -68,7 +72,9 @@ species_summary <- summary_df %>%
   )
 
 
-# PLOT BAR CHART ------------------------------
+# ============================================================================
+# 2. PLOT BAR CHART
+# ============================================================================
 
 # Create bar plot
 
@@ -131,7 +137,9 @@ ggsave(
 
 cat("Saved: within_site_space_use.png\n\n")
 
-# PLOT MEAN PERCENTAGE ------------------------------
+# ============================================================================
+# 3. PLOT MEAN AREA USAGE
+# ============================================================================
 
 # Overall mean percentage of used area
 
