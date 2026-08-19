@@ -22,18 +22,20 @@ library(ggspatial)
 
 options(tigris_use_cache = TRUE)
 
-# SCRIPT PREP ------------------------------
+# ============================================================================
+# 1. SSCRIPT PREP
+# ============================================================================
 
-focal_species    <- "Roseate Spoonbill"
-focal_site_id    <- 48
-focal_cov        <- "water"      # covariate name in within-site models
-focal_cov_land   <- "water_pct"  # covariate name in landscape models
+focal_species    <- "Green Jay"
+focal_site_id    <- 40
+focal_cov        <- "trees"      # covariate name in within-site models
+focal_cov_land   <- "trees_pct"  # covariate name in landscape models
 cell_size        <- 100          # hex grid cell size in meters
 n_points         <- 200
 ci               <- 0.95
 
 input_dir  <- "/Users/ianbecker/Desktop/project_code/UGS_occ/data"
-output_dir <- "/Users/ianbecker/Desktop/project_code/UGS_occ/figures_tables/figure5"
+output_dir <- "/Users/ianbecker/Desktop/project_code/UGS_occ/figures_tables/figureS2_greenjay"
 
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
@@ -70,16 +72,19 @@ lc_labels <- c(
   "8" = "Snow/Ice"
 )
 
-# LOAD DATA ------------------------------
+# ============================================================================
+# 2. LOAD DATA
+# ============================================================================
 
 # iNat data and site covariates
 
-inat      <- read.csv("inat_observations_with_sites.csv")
-site_covs <- read.csv("site_covariates.csv")
+inat <- read.csv("gbif_in_sites.csv")
+ebird <- read.csv("ebird_filtered_lrgv_with_sites.csv")
+site_covs <- read.csv("site_covariates_ebird.csv")
 
 # Urban green space shapefile + check
 
-ugs       <- st_read("lrgv_green_spaces_detection_filtered", quiet = TRUE)
+ugs       <- st_read("lrgv_green_spaces_ebird", quiet = TRUE)
 sites_utm <- st_transform(ugs, crs = 32614)
 site      <- sites_utm %>% filter(site_id == focal_site_id)
 
@@ -94,11 +99,11 @@ if (crs(landcover, describe = TRUE)$code != "32614") {
 
 # Landscape models
 
-all_results <- readRDS("model_results/all_results_2026-03-19.rds")
+all_results <- readRDS("model_results_ebird_checklist/all_results_ebird_checklist_2026-08-11.rds")
 
 # Within site models
 
-site_file <- file.path("within_site_models",
+site_file <- file.path("within_site_models_gbif",
                        paste0(gsub(" ", "_", focal_species),
                               "_site", focal_site_id, ".rds"))
 if (!file.exists(site_file)) stop("Within-site model file not found")
@@ -106,14 +111,16 @@ site_result <- readRDS(site_file)
 
 cat("Data loaded\n\n")
 
-# PANEL A: OCCUPANCY SCALE COMPARISON ------------------------------
+# ============================================================================
+# 3. PANEL A: OCCUPANCY SCALE COMPARISON
+# ============================================================================
 
 # Back transform covariates to original scale
 
-cov_mean <- mean(site_covs$cov_pct, na.rm = TRUE)
-cov_sd   <- sd(site_covs$cov_pct,   na.rm = TRUE)
-cov_min  <- min(site_covs$cov_pct,  na.rm = TRUE)
-cov_max  <- max(site_covs$cov_pct,  na.rm = TRUE)
+cov_mean <- mean(site_covs$trees_pct, na.rm = TRUE)
+cov_sd   <- sd(site_covs$trees_pct,   na.rm = TRUE)
+cov_min  <- min(site_covs$trees_pct,  na.rm = TRUE)
+cov_max  <- max(site_covs$trees_pct,  na.rm = TRUE)
 
 # Prediction on original scale
 
@@ -123,7 +130,7 @@ x_orig   <- seq(cov_min, cov_max, length.out = n_points)
 
 x_scaled <- (x_orig - cov_mean) / cov_sd
 
-# ── Landscape level curve ────────────────────────────────────────────────────────────
+### Landscape level curve 
 
 # Find focal species
 
@@ -164,7 +171,7 @@ land_df <- data.frame(
   scale = "Landscape Level"
 )
 
-# ── Site level curve ────────────────────────────────────────────────────────────
+### Site level curve 
 
 model_site  <- site_result$model
 beta_site   <- as.matrix(model_site$beta.samples)
@@ -209,19 +216,27 @@ site_df <- data.frame(
   scale = "Site Level"
 )
 
-# ── Raw data points ────────────────────────────────────────────────────────────
+### Raw data points
 
-# Get sites with focal species detections in iNat data
+# Filter to subsampled checklists used in the actual analysis
 
-sp_sites <- inat %>%
-  filter(common_name == focal_species) %>%
-  pull(site_id) %>% unique()
+effort_lookup <- readRDS("detection_matrices_ebird_checklist/effort_lookup.rds")
+sampled_ids   <- unique(effort_lookup$checklist_id)
+
+# Panel B detection sites — from subsampled checklists only
+
+sp_sites <- ebird %>%
+  filter(checklist_id %in% sampled_ids,
+         common_name == focal_species,
+         species_observed == TRUE) %>%
+  pull(site_id) %>%
+  unique()
 
 # Get landscape-level detections 
 
 land_pts <- site_covs %>%
   mutate(detected = site_id %in% sp_sites) %>%
-  transmute(x = cov_pct, y = as.numeric(detected), scale = "Landscape Level")
+  transmute(x = trees_pct, y = as.numeric(detected), scale = "Landscape Level")
 
 # Get site-level detections
 
@@ -266,8 +281,7 @@ p_curve <- ggplot() +
   theme(
     axis.text            = element_text(size = 15),
     axis.title           = element_blank(),
-    legend.position      = c(0.98, 0.98),
-    legend.justification = c(1, 1),
+    legend.position = "bottom",
     legend.text          = element_text(size = 17),
     legend.background    = element_rect(fill = "white", color = NA),
     panel.grid.major.y   = element_line(color = "gray90", linewidth = 0.3)
@@ -275,11 +289,13 @@ p_curve <- ggplot() +
 
 # Save 
 
-ggsave(file.path(output_dir, "fig5A_scale_comparison_curve.png"),
+ggsave(file.path(output_dir, "figS2_scale_comparison_curve.png"),
        p_curve, width = 6, height = 5, dpi = 300, bg = "white")
-cat("Saved: fig5A_scale_comparison_curve.png\n\n")
+cat("Saved: figS2_scale_comparison_curve.png\n\n")
 
-# PANEL B: LANDSCAPE-LEVEL DETECTIONS ------------------------------
+# ============================================================================
+# 4. PANEL B: LANDSCAPE-LEVEL DETECTIONS 
+# ============================================================================
 
 # Pull LRGV counties
 
@@ -291,7 +307,7 @@ lrgv <- tx_counties %>%
 
 # Load in urban areas shapefile
 
-census_urban      <- st_read("tl_2020_us_uac20", quiet = TRUE) %>%
+census_urban <- st_read("tl_2020_us_uac20", quiet = TRUE) %>%
   st_transform(st_crs(ugs))
 
 # Align to LRGV boundary
@@ -328,15 +344,17 @@ p_map <- ggplot() +
 
 # Save
 
-ggsave(file.path(output_dir, "fig5B_species_detection_map.png"),
+ggsave(file.path(output_dir, "figS2_species_detection_map.png"),
        p_map, width = 10, height = 8, dpi = 300, bg = "white")
 cat("Saved: fig5B_species_detection_map.png\n\n")
 
-# PANEL C: SITE-LEVEL DETECTIONS ------------------------------
+# ============================================================================
+# 5. PANEL C: SITE-LEVEL DETECTIONS
+# ============================================================================
 
 # Round site area 
 
-site_area     <- round(as.numeric(st_area(site)) / 10000, 2)
+site_area <- round(as.numeric(st_area(site)) / 10000, 2)
 
 # Create site map buffer
 
@@ -365,7 +383,7 @@ cat(focal_species, "observations at site:", nrow(species_obs), "\n\n")
 # Convert species observations to sf points
 
 species_sf <- st_as_sf(species_obs,
-                       coords = c("longitude", "latitude"), crs = 4326) %>%
+                       coords = c("decimalLongitude", "decimalLatitude"), crs = 4326) %>%
   st_transform(crs = 32614)
 
 # Set up bounding box
@@ -403,6 +421,6 @@ p_detections <- p_base +
 
 # Save
 
-ggsave(file.path(output_dir, "fig5C_site_detection_map.png"),
+ggsave(file.path(output_dir, "figS2_site_detection_map.png"),
        p_detections, width = 10, height = 8, dpi = 300, bg = "white")
 cat("Saved: fig5C_site_detection_map.png\n\n")
