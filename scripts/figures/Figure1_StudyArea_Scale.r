@@ -24,23 +24,27 @@ library(magick)
 
 options(tigris_use_cache = TRUE)
 
-# SCRIPT PREP ------------------------------
+# ============================================================================
+# 1. SCRIPT PREP
+# ============================================================================
 
 exemplar_site_id <- 48     # site ID for tilted maps (see shapefile for more info)
-cell_size        <- 100    # hex grid cell size in meters
+cell_size <- 100    # hex grid cell size in meters
 
 input_dir  <- "/Users/ianbecker/Desktop/project_code/UGS_occ/data"
-output_dir <- "/Users/ianbecker/Desktop/project_code/UGS_occ/figures_tables/figure1"
+output_dir <- "/Users/ianbecker/Desktop/project_code/UGS_occ/figures_tables"
 
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
 setwd(input_dir)
 
-# LOAD DATA  ------------------------------
+# ============================================================================
+# 2. LOAD DATA 
+# ============================================================================
 
 # Load in urban green space and urban areas shapefile
 
-ugs          <- st_read("lrgv_green_spaces_detection_filtered", quiet = TRUE)
+ugs          <- st_read("lrgv_green_spaces_ebird", quiet = TRUE)
 census_urban <- st_read("tl_2020_us_uac20", quiet = TRUE)
 
 # Load in county shapefile
@@ -76,7 +80,9 @@ if (crs(landcover, describe = TRUE)$code != "32614") {
 
 cat("Data loaded\n\n")
 
-# PANEL A: STUDY AREA MAP ------------------------------
+# ============================================================================
+# 3. PANEL A: STUDY AREA MAP
+# ============================================================================
 
 # Load in US shapefile
 
@@ -98,7 +104,7 @@ study_area_map <- ggplot() +
           aes(fill = "Urban Areas"), color = NA, alpha = 0.6) +
   
   geom_sf(data = ugs_centroids,
-          aes(color = "Study Sites (n = 69)"), size = 1.5, alpha = 0.7) +
+          aes(color = "Study Sites (n = 59)"), size = 1.5, alpha = 0.7) +
   
   scale_fill_manual(
     name   = NULL,
@@ -107,7 +113,7 @@ study_area_map <- ggplot() +
   
   scale_color_manual(
     name   = NULL,
-    values = c("Study Sites (n = 69)" = "darkgreen"),
+    values = c("Study Sites (n = 59)" = "darkgreen"),
     guide  = guide_legend(override.aes = list(size = 3, alpha = 1))
   ) +
   
@@ -148,7 +154,9 @@ ggsave(
 
 cat("Saved: fig1A_study_area_map.png\n")
 
-# CREATE INSET MAPS FOR PANEL A ------------------------------
+# ============================================================================
+# 4. INSET MAPS FOR PANEL A
+# ============================================================================
 
 # US inset map
 
@@ -172,7 +180,9 @@ ggsave(file.path(output_dir, "fig1_inset_texas.png"),
        p_tx_inset, width = 8, height = 5, dpi = 300, bg = "white")
 cat("Saved: fig1_inset_texas.png\n\n")
 
-# PANEL B: EXEMPLAR SITE MAP (CLEAN) ------------------------------
+# ============================================================================
+# 5. PANEL B: EXEMPLAR SITE MAP
+# ============================================================================
 
 # Prep Land Cover data
 
@@ -246,7 +256,9 @@ ggsave(path_landcover, p_landcover,
        width = 10, height = 8, dpi = 300, bg = "white")
 cat("Saved:", path_landcover, "\n")
 
-# PANEL C: EXEMPLAR SITE MAP (GRID)  ------------------------------
+# ============================================================================
+# 6. PANEL C: EXEMPLAR SITE MAP WITH GRID
+# ============================================================================
 
 # Plot gridded site map
 
@@ -275,39 +287,3 @@ ggsave(path_grid, p_grid,
        width = 10, height = 8, dpi = 300, bg = "white")
 cat("Saved:", path_grid, "\n\n")
 
-# TILT PANEL B AND C ------------------------------
-
-# Helper function to apply tilt
-
-tilt_perspective <- function(img) {
-  
-  w <- image_info(img)$width
-  h <- image_info(img)$height
-  
-  img <- image_crop(img, paste0(w, "x", round(h * 0.90), "+0+", round(h * 0.05)))
-  
-  w <- image_info(img)$width
-  h <- image_info(img)$height
-  
-  control_points <- c(
-    0,   0,        round(w * 0.18),  round(h * 0.20),
-    w,   0,        round(w * 0.91),  round(h * 0.05),
-    0,   h,        round(w * 0.06),  round(h * 0.57),
-    w,   h,        round(w * 0.80),  round(h * 0.47)
-  )
-  
-  image_distort(img, "Perspective", control_points, bestfit = TRUE)
-}
-
-img_landcover_tilted <- tilt_perspective(image_read(path_landcover)) %>% image_trim()
-img_grid_tilted      <- tilt_perspective(image_read(path_grid))      %>% image_trim()
-
-image_write(img_landcover_tilted,
-            file.path(output_dir,
-                      paste0("fig1B_site_", exemplar_site_id, "_landcover_tilted.png")))
-cat("Saved: fig1B tilted\n")
-
-image_write(img_grid_tilted,
-            file.path(output_dir,
-                      paste0("fig1C_site_", exemplar_site_id, "_grid_tilted.png")))
-cat("Saved: fig1C tilted\n\n")
