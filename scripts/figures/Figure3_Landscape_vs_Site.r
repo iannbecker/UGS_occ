@@ -16,11 +16,13 @@ setwd("~/Desktop/project_code/UGS_occ/data")
 
 output_dir <- "/Users/ianbecker/Desktop/project_code/UGS_occ/figures_tables"
 
-# LOAD AND PREP DATA ------------------------------
+# ============================================================================
+# 1. SETUP AND LOAD DATA
+# ============================================================================
 
 # Load in landscape-level results
 
-all_results <- readRDS("model_results/all_results_2026-03-19.rds")
+all_results <- readRDS("model_results_ebird_checklist/all_results_ebird_checklist_2026-08-11.rds")
 
 # Extract landscape-level coefficients and credible intervals
 
@@ -53,7 +55,7 @@ site_coefs <- site_coefs %>%
 
 # Load in site-level results
 
-within_coefs <- read.csv("within_site_models/within_site_results.csv")
+within_coefs <- read.csv("within_site_models_gbif/within_site_results_gbif.csv")
 
 # Clean up parameter names to match landscape level
 
@@ -99,7 +101,9 @@ combined <- combined %>%
     covariate_label = ifelse(parameter %in% names(cov_labels),
                              cov_labels[parameter], parameter))
 
-# PLOTTING ------------------------------
+# ============================================================================
+# 2. PLOTTING
+# ============================================================================
 
 # Setup colors for each covariate
 
