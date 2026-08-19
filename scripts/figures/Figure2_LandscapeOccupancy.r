@@ -17,7 +17,9 @@ setwd("~/Desktop/project_code/UGS_occ/data")
 
 output_dir <- "/Users/ianbecker/Desktop/project_code/UGS_occ/figures_tables"
 
-# DATA PREP ------------------------------
+# ============================================================================
+# 1. DATA PREP
+# ============================================================================
 
 # Change label and order of covariates for plotting
 
@@ -38,7 +40,7 @@ n_points <- 100
 
 # Load in data
 
-site_covs <- read.csv("site_covariates.csv")
+site_covs <- read.csv("site_covariates_ebird.csv")
 
 # Calculate mean and SD for each covariate
 
@@ -69,11 +71,13 @@ cov_colors <- c(
 
 # Load in models
 
-all_results <- readRDS("model_results/all_results_2026-03-19.rds")
+all_results <- readRDS("model_results_ebird_checklist/all_results_ebird_checklist_2026-08-11.rds")
 successful  <- all_results[sapply(all_results, function(x) x$success)]
 cat("Successful models:", length(successful), "\n\n")
 
-# HELPER FUNCTION TO GENERATE OCCUPANCY CURVE FOR EACH SPECIES X COVARIATE  ------------------------------
+# ============================================================================
+# 2. HELPER FUNCTION TO GENERATE OCCUPANCY CURVE FOR EACH SPECIES X COVARIATE
+# ============================================================================
 
 get_curve <- function(model, focal_param, cov_mean, cov_sd, 
                       x_min, x_max, n_points = 100) {
@@ -141,7 +145,9 @@ for (sp_name in names(successful)) {
 
 cat("Curves generated for", length(unique(all_curves$species)), "species\n\n")
 
-# CREATE PLOT ------------------------------
+# ============================================================================
+# 3. CREATE PLOT
+# ============================================================================
 
 # Calulate mean curve for each covariate across species
 
@@ -211,7 +217,7 @@ p <- ggplot() +
   )
 
 ggsave(
-  file.path(output_dir, "Figure1.png"),
+  file.path(output_dir, "Figure2_ebird.png"),
   p, width = 12, height = 6, dpi = 200, bg = "white"
 )
 
