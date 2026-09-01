@@ -1,4 +1,4 @@
-# Data and code for: TBD
+# Data and code for: Integrating community science datasets reveals scale dependent habitat selection in urban bird communities
 **Citation:** TBD
 
 ## Data
@@ -41,6 +41,6 @@ These scripts are for figures in the main body of the manuscript.
 
 
 ## Abstract
-TBD
+Greenspaces in urban areas contribute to the long-term conservation of biodiversity. Many species rely on these habitat patches for foraging, breeding, and migratory stopover. Despite increasing research quantifying when, and to what extent, birds use urban greenspaces, the factors determining how individuals are distributed within a greenspace have seldom been explored. This information is invaluable for researchers and urban habitat practitioners, who must consider how site level habitat features impact the community of species that use an urban greenspace. We integrate semi-structured, checklist data from eBird with opportunistic, georeferenced observation data from iNaturalist to compare habitat selection patterns between landscape and site-level spatial scales for 36 urban bird species in the Lower Rio Grande Valley in Texas. Our results indicate consistent attraction to tree cover and flooded vegetation as habitat features for a majority of species both among and within urban greenspaces. In contrast, we found evidence of scale reversal in response to water cover, with many species positively associated with water cover at a landscape-scale but negatively associated with water cover once within a greenspace. Species in our study area utilized an average of 30% of the available area of a greenspace, highlighting the potential for these habitat patches to serve as ecological traps. Based on our findings, we recommend habitat management prioritize expanding resources within existing greenspaces and that such management can be evaluated on a species-specific basis. We propose and discuss a novel framework that integrates large-scale community science datasets to develop species-specific conservation plans at both landscape and site levels.
 
 
